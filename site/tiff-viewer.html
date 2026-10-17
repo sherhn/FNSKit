@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Бесплатный просмотр TIFF и TIF онлайн: откройте многостраничный скан прямо в браузере, листайте страницы и увеличивайте детали. Файл остаётся на устройстве." />
+  <meta name="keywords" content="просмотр TIFF онлайн, открыть TIF, многостраничный TIFF, TIFF viewer, просмотрщик TIFF" />
+  <meta name="robots" content="noindex,nofollow" />
+  <meta name="theme-color" content="#171815" />
+  <link rel="canonical" href="https://fnskit.sherhn.space/tiff-viewer" />
+  <link rel="icon" href="/favicon.ico" type="image/x-icon" sizes="any" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png" />
+  <link rel="icon" type="image/svg+xml" href="/images/logo.svg" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png" />
+  <link rel="manifest" href="./site.webmanifest" />
+  <link rel="preload" href="/fonts/manrope-variable.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/fonts.css" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="ФНСКит" />
+  <meta property="og:locale" content="ru_RU" />
+  <meta property="og:title" content="Просмотр TIFF онлайн — ФНСКит" />
+  <meta property="og:description" content="Откройте многостраничный TIFF прямо в браузере. Файл не загружается на сервер." />
+  <meta property="og:url" content="https://fnskit.sherhn.space/tiff-viewer" />
+  <meta property="og:image" content="https://fnskit.sherhn.space/images/og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Просмотр TIFF онлайн — ФНСКит" />
+  <meta name="twitter:description" content="Многостраничный TIFF в браузере — без отправки файла на сервер." />
+  <meta name="twitter:image" content="https://fnskit.sherhn.space/images/og.png" />
+  <title>Просмотр TIFF онлайн — открыть многостраничный TIF | ФНСКит</title>
+  <link rel="stylesheet" href="./css/tailwind.css" />
+  <script src="/vendor/utif-3.1.0.js"></script>
+  <script src="./js/tiff-viewer-demo.js" defer></script>
+  <style>
+    body { background-image: radial-gradient(rgba(23, 24, 21, .07) .7px, transparent .7px); background-size: 9px 9px; }
+    #viewport { cursor: grab; touch-action: none; }
+    #viewport.dragging { cursor: grabbing; }
+    #canvas { image-rendering: auto; transform-origin: 0 0; }
+    .drop-active { border-color: #7C68FF !important; background: rgba(124,104,255,.08) !important; transform: translateY(-2px); }
+    details summary { list-style: none; }
+    details summary::-webkit-details-marker { display: none; }
+  </style>
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@graph":[
+    {"@type":"WebApplication","@id":"https://fnskit.sherhn.space/tiff-viewer#app","name":"Просмотр TIFF онлайн","url":"https://fnskit.sherhn.space/tiff-viewer","applicationCategory":"UtilitiesApplication","operatingSystem":"Any","browserRequirements":"Требуется современный браузер с JavaScript","description":"Локальный просмотр многостраничных TIFF и TIF-файлов в браузере.","isAccessibleForFree":true,"publisher":{"@type":"Organization","name":"ФНСКит","url":"https://fnskit.sherhn.space/"}},
+    {"@type":"FAQPage","mainEntity":[
+      {"@type":"Question","name":"Файл отправляется на сервер?","acceptedAnswer":{"@type":"Answer","text":"Нет. TIFF читается и отображается прямо в браузере через File API; файл остаётся на вашем устройстве."}},
+      {"@type":"Question","name":"Поддерживаются ли многостраничные TIFF?","acceptedAnswer":{"@type":"Answer","text":"Да. После открытия файла можно переключать страницы кнопками, стрелками клавиатуры или вводом номера страницы."}},
+      {"@type":"Question","name":"Почему большой TIFF может открываться медленно?","acceptedAnswer":{"@type":"Answer","text":"Декодирование происходит локально. Скорость зависит от размера файла, разрешения страниц, сжатия TIFF и мощности устройства."}}
+    ]},
+    {"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Главная","item":"https://fnskit.sherhn.space/"},{"@type":"ListItem","position":2,"name":"Просмотр TIFF","item":"https://fnskit.sherhn.space/tiff-viewer"}]}
+  ]}
+  </script>
+</head>
+<body class="min-h-screen overflow-x-hidden bg-paper font-sans text-ink antialiased">
+  <header class="relative z-40 border-b border-ink/10 bg-paper/80 backdrop-blur-xl">
+    <nav class="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-4 sm:px-8 lg:px-12" aria-label="Основная навигация">
+      <a href="/" class="group flex items-center gap-3" aria-label="ФНСКит — на главную"><img src="./images/logo.svg" alt="" class="h-10 w-10 shrink-0 transition-transform group-hover:-rotate-3" /><span class="hidden text-lg font-black tracking-[-.07em] sm:block">ФНСКит</span></a>
+      <div class="hidden items-center gap-2 rounded-full border border-ink/10 bg-white/70 px-4 py-2 text-xs font-bold text-ink/55 md:flex"><span class="h-2 w-2 rounded-full bg-lime shadow-[0_0_0_4px_rgba(200,255,50,.22)]"></span>Файлы остаются на вашем устройстве</div>
+      <a class="rounded-full bg-lime px-5 py-3 text-sm font-extrabold text-ink shadow-[0_8px_20px_rgba(200,255,50,.3)] transition hover:-translate-y-0.5 hover:bg-ink hover:text-white" href="/editor-custom">Создать TIFF</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="relative mx-auto max-w-[1240px] px-5 pb-8 pt-10 sm:px-8 lg:pb-12 lg:pt-16">
+      <div class="pointer-events-none absolute -right-32 top-0 -z-10 h-[460px] w-[460px] rounded-full bg-lime/30 blur-[110px]"></div>
+      <div class="pointer-events-none absolute -left-48 top-48 -z-10 h-[360px] w-[360px] rounded-full bg-violet/12 blur-[100px]"></div>
+      <div class="max-w-4xl">
+        <nav class="mb-6 text-xs font-bold text-ink/45" aria-label="Хлебные крошки"><a class="hover:text-ink" href="/">Главная</a> <span class="mx-2">/</span> Просмотр TIFF</nav>
+        <p class="inline-flex items-center gap-2 rounded-full border border-ink/10 bg-white/75 px-3 py-2 text-[10px] font-extrabold uppercase tracking-[.16em] text-violet"><span class="h-2 w-2 rounded-full bg-lime"></span> Бесплатно · без регистрации</p>
+        <h1 class="mt-5 text-[clamp(2.8rem,6vw,5.5rem)] font-extrabold leading-[.88] tracking-[-.08em]">Просмотр TIFF<br /><span class="relative inline-block"><span class="relative z-10">прямо в браузере.</span><span class="absolute -bottom-[16%] left-[-2%] h-[12%] w-[104%] -rotate-1 rounded-full bg-lime"></span></span></h1>
+        <p class="mt-8 max-w-2xl text-base font-medium leading-relaxed text-ink/55 sm:text-lg">Откройте TIF или многостраничный TIFF, проверьте порядок страниц и рассмотрите детали. Декодирование выполняется на вашем устройстве — файл не уходит на сервер.</p>
+      </div>
+    </section>
+
+    <section class="mx-auto max-w-[1240px] px-5 pb-16 sm:px-8">
+      <div id="dropzone" class="rounded-[2rem] border-2 border-dashed border-ink/15 bg-white/85 p-6 text-center shadow-soft transition sm:p-9">
+        <div class="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-lime text-2xl">↗</div>
+        <p class="mt-5 text-lg font-extrabold tracking-[-.03em]">Перетащите TIFF сюда</p>
+        <p id="status" class="mt-2 text-xs font-semibold text-ink/45">или выберите файл с устройства · .tif, .tiff · многостраничные файлы поддерживаются</p>
+        <label class="mt-5 inline-flex cursor-pointer rounded-full bg-ink px-5 py-3 text-sm font-extrabold text-white transition hover:bg-violet">Выбрать TIFF<input id="fileInput" class="sr-only" type="file" accept=".tif,.tiff,image/tiff" /></label>
+      </div>
+
+      <section id="viewer" class="mt-5 hidden overflow-hidden rounded-[2rem] border border-ink/10 bg-white shadow-soft" aria-label="Просмотрщик TIFF">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 bg-paper px-4 py-3 sm:px-5">
+          <div class="min-w-0"><p id="fileName" class="truncate text-sm font-extrabold"></p><p id="fileMeta" class="text-xs font-semibold text-ink/45"></p></div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button id="prev" class="rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40" type="button" aria-label="Предыдущая страница">←</button>
+            <label class="flex items-center gap-2 rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm font-semibold">Страница <input id="pageInput" class="w-10 bg-transparent text-center font-bold outline-none" inputmode="numeric" type="number" min="1" /> <span id="pageCount"></span></label>
+            <button id="next" class="rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40" type="button" aria-label="Следующая страница">→</button>
+            <span class="mx-1 hidden h-6 w-px bg-ink/15 sm:block"></span>
+            <button id="zoomOut" class="rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm font-bold" type="button" aria-label="Уменьшить масштаб">−</button><button id="fit" class="rounded-xl border border-ink/15 bg-white px-3 py-2 text-xs font-bold" type="button">По ширине</button><button id="zoomIn" class="rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm font-bold" type="button" aria-label="Увеличить масштаб">+</button><span id="zoomValue" class="w-11 text-center text-xs font-bold text-ink/45"></span>
+          </div>
+        </div>
+        <div class="grid min-h-[420px] lg:grid-cols-[184px_minmax(0,1fr)]">
+          <aside class="order-2 border-t border-ink/10 bg-paper p-3 lg:order-1 lg:max-h-[65vh] lg:overflow-y-auto lg:border-r lg:border-t-0" aria-label="Миниатюры страниц">
+            <div class="mb-3 flex items-center justify-between"><p class="text-[10px] font-extrabold uppercase tracking-[.14em] text-ink/45">Страницы</p><span id="thumbnailStatus" class="text-[10px] font-bold text-ink/35"></span></div>
+            <div id="thumbnails" class="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-x-visible"></div>
+          </aside>
+          <div id="viewport" class="relative order-1 h-[58vh] min-h-[420px] overflow-auto bg-ink/10 p-5 lg:order-2 lg:h-[65vh]"><div id="stage" class="relative mx-auto w-max shadow-xl"><canvas id="canvas" class="block bg-white"></canvas></div><p id="rendering" class="hidden absolute inset-0 grid place-items-center bg-paper/70 text-sm font-bold text-ink">Рендерим страницу…</p></div>
+        </div>
+        <p class="border-t border-ink/10 px-4 py-3 text-xs font-semibold text-ink/45">← → — страницы · + / − — масштаб · колесо с Ctrl/⌘ — масштабирование · перетаскивание — перемещение.</p>
+      </section>
+    </section>
+
+    <section class="border-y border-ink/10 bg-white/70"><div class="mx-auto grid max-w-[1240px] gap-4 px-5 py-10 sm:grid-cols-3 sm:px-8">
+      <article class="rounded-2xl bg-paper p-5"><span class="grid h-9 w-9 place-items-center rounded-xl bg-lime font-black">1</span><h2 class="mt-5 text-lg font-extrabold tracking-[-.04em]">Выберите файл</h2><p class="mt-2 text-sm font-medium leading-relaxed text-ink/55">Загрузите .tif или .tiff с компьютера или телефона.</p></article>
+      <article class="rounded-2xl bg-paper p-5"><span class="grid h-9 w-9 place-items-center rounded-xl bg-[#DDD9FF] font-black">2</span><h2 class="mt-5 text-lg font-extrabold tracking-[-.04em]">Проверьте страницы</h2><p class="mt-2 text-sm font-medium leading-relaxed text-ink/55">Листайте скан, меняйте масштаб и сверяйте читаемость.</p></article>
+      <article class="rounded-2xl bg-paper p-5"><span class="grid h-9 w-9 place-items-center rounded-xl bg-white font-black">3</span><h2 class="mt-5 text-lg font-extrabold tracking-[-.04em]">Файл остаётся вашим</h2><p class="mt-2 text-sm font-medium leading-relaxed text-ink/55">Мы не принимаем TIFF на сервер и не храним его.</p></article>
+    </div></section>
+
+    <section class="mx-auto max-w-[1240px] px-5 py-16 sm:px-8"><div class="grid gap-10 lg:grid-cols-[.9fr_1.1fr] lg:items-start"><div><p class="text-[10px] font-extrabold uppercase tracking-[.16em] text-violet">Для работы со сканами</p><h2 class="mt-4 text-4xl font-extrabold leading-[.95] tracking-[-.07em]">Когда нужен просмотрщик TIFF?</h2></div><div class="grid gap-4 sm:grid-cols-2"><article class="rounded-2xl border border-ink/10 bg-white p-5"><h3 class="font-extrabold">Перед отправкой в ФНС</h3><p class="mt-2 text-sm font-medium leading-relaxed text-ink/55">Убедитесь, что все страницы скана попали в один файл и хорошо читаются.</p></article><article class="rounded-2xl border border-ink/10 bg-white p-5"><h3 class="font-extrabold">После сканирования</h3><p class="mt-2 text-sm font-medium leading-relaxed text-ink/55">Быстро просмотрите многостраничный архив без установки отдельной программы.</p></article><article class="rounded-2xl border border-ink/10 bg-white p-5"><h3 class="font-extrabold">После создания TIFF</h3><p class="mt-2 text-sm font-medium leading-relaxed text-ink/55">В редакторе ФНСКит можно открыть результат сразу после скачивания.</p></article><article class="rounded-2xl border border-ink/10 bg-white p-5"><h3 class="font-extrabold">Конфиденциальные документы</h3><p class="mt-2 text-sm font-medium leading-relaxed text-ink/55">Файл обрабатывается в памяти браузера и не передаётся третьим лицам.</p></article></div></div></section>
+
+    <section class="mx-auto max-w-[900px] px-5 pb-16 sm:px-8"><p class="text-center text-[10px] font-extrabold uppercase tracking-[.16em] text-violet">Вопросы и ответы</p><h2 class="mt-4 text-center text-4xl font-extrabold tracking-[-.07em]">О просмотре TIFF</h2><div class="mt-8 divide-y divide-ink/10 rounded-[2rem] border border-ink/10 bg-white px-5 sm:px-7"><details class="group py-5" open><summary class="flex cursor-pointer items-center justify-between gap-4 font-extrabold">Файл загружается на сервер?<span class="text-xl text-violet group-open:rotate-45">+</span></summary><p class="mt-3 max-w-2xl text-sm font-medium leading-relaxed text-ink/55">Нет. Страница использует локальный File API браузера. Мы не получаем копию TIFF и не создаём серверное хранилище.</p></details><details class="group py-5"><summary class="flex cursor-pointer items-center justify-between gap-4 font-extrabold">Можно открыть многостраничный TIFF?<span class="text-xl text-violet group-open:rotate-45">+</span></summary><p class="mt-3 max-w-2xl text-sm font-medium leading-relaxed text-ink/55">Да. Просмотрщик определяет число страниц и позволяет перейти к нужной по номеру или кнопками навигации.</p></details><details class="group py-5"><summary class="flex cursor-pointer items-center justify-between gap-4 font-extrabold">Почему TIFF не открывается?<span class="text-xl text-violet group-open:rotate-45">+</span></summary><p class="mt-3 max-w-2xl text-sm font-medium leading-relaxed text-ink/55">Некоторые редкие схемы сжатия, повреждённые файлы или очень большие страницы могут не поддерживаться браузерным декодером. Попробуйте открыть файл на компьютере или пересохранить его.</p></details></div></section>
+  </main>
+  <footer class="border-t border-ink/10 bg-paper"><div class="mx-auto flex max-w-[1240px] flex-col justify-between gap-4 px-5 py-7 text-xs font-bold text-ink/45 sm:flex-row sm:px-8"><span>© 2026 ФНСКит</span><nav class="flex flex-wrap gap-x-4 gap-y-2" aria-label="Ссылки в подвале"><a class="hover:text-ink" href="/editor-dlya-fns">Редактор TIFF</a><a class="hover:text-ink" href="/kak-sdelat-mnogostranichnyy-tiff-dlya-fns">TIFF для ФНС</a><a class="hover:text-ink" href="/privacy">Политика ПДн</a></nav></div></footer>
+</body>
+</html>

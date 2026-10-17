@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex,nofollow" />
+  <meta name="description" content="Как подготовить многостраничный TIFF для ФНС: параметры для разных сценариев, порядок страниц и проверка перед отправкой." />
+  <meta name="keywords" content="как сделать многостраничный TIFF, многостраничный TIFF для ФНС, объединить сканы в TIFF, PDF в TIFF для налоговой, инструкция TIFF для ФНС, TIFF 300 DPI, TIFF для требования ФНС" />
+  <link rel="canonical" href="https://fnskit.sherhn.space/kak-sdelat-mnogostranichnyy-tiff-dlya-fns" />
+  <meta name="theme-color" content="#171815" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="ФНСКит" />
+  <meta property="og:locale" content="ru_RU" />
+  <meta property="og:title" content="Как сделать многостраничный TIFF для ФНС без пересканирования" />
+  <meta property="og:description" content="Понятная инструкция: собрать PDF и сканы в один TIFF, сохранить читаемость и проверить файл до отправки." />
+  <meta property="og:url" content="https://fnskit.sherhn.space/kak-sdelat-mnogostranichnyy-tiff-dlya-fns" />
+  <meta property="og:image" content="https://fnskit.sherhn.space/images/og.png" />
+  <meta property="og:image:alt" content="Как сделать многостраничный TIFF для ФНС — ФНСКит" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Как сделать многостраничный TIFF для ФНС" />
+  <meta name="twitter:description" content="Параметры TIFF для разных сценариев ФНС, порядок страниц и типичные ошибки — в одной инструкции." />
+  <meta name="twitter:image" content="https://fnskit.sherhn.space/images/og.png" />
+  <title>Как сделать многостраничный TIFF для ФНС — инструкция</title>
+  <link rel="icon" href="/favicon.ico" type="image/x-icon" sizes="any" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png" />
+  <link rel="icon" type="image/svg+xml" href="/images/logo.svg" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png" />
+  <link rel="manifest" href="./site.webmanifest" />
+  <link rel="preload" href="/fonts/manrope-variable.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/fonts.css" />
+  <link rel="stylesheet" href="./css/tailwind.css?v=20260723-responsive" />
+  <link rel="stylesheet" href="./style.css" />
+  <link rel="stylesheet" href="./mobile.css?v=20261017-free" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "mainEntityOfPage": {
+          "@type": "WebPage",
+          "@id": "https://fnskit.sherhn.space/kak-sdelat-mnogostranichnyy-tiff-dlya-fns"
+        },
+        "inLanguage": "ru-RU",
+        "headline": "Как сделать многостраничный TIFF для ФНС без пересканирования",
+        "description": "Практическая инструкция по подготовке многостраничного TIFF для представления документов в ФНС.",
+        "image": "https://fnskit.sherhn.space/images/og.png",
+        "datePublished": "2026-07-20",
+        "dateModified": "2026-07-21",
+        "author": {"@type": "Organization", "name": "ФНСКит", "url": "https://fnskit.sherhn.space/"},
+        "publisher": {"@type": "Organization", "name": "ФНСКит", "logo": {"@type": "ImageObject", "url": "https://fnskit.sherhn.space/images/logo.svg"}}
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Главная", "item": "https://fnskit.sherhn.space/" },
+          { "@type": "ListItem", "position": 2, "name": "Как сделать многостраничный TIFF для ФНС", "item": "https://fnskit.sherhn.space/kak-sdelat-mnogostranichnyy-tiff-dlya-fns" }
+        ]
+      }
+    ]
+  }
+  </script>
+</head>
+<body class="m-0 overflow-x-hidden bg-paper font-sans text-ink antialiased [background-image:radial-gradient(rgba(23,24,21,.06)_0.7px,transparent_0.7px)] [background-size:9px_9px]">
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="ФНСКит — на главную">
+      <img src="./images/logo.svg" alt="" />
+      <span>ФНСКит</span>
+    </a>
+    <div class="header-actions">
+      <a class="header-link" href="/">На главную</a>
+      <a class="header-cta" href="/editor-dlya-fns">Собрать TIFF <span class="action-chevron">&gt;</span></a>
+    </div>
+  </header>
+
+  <main class="article-shell">
+    <article class="article">
+      <header class="article-hero">
+        <p class="eyebrow">Практическое руководство · ФНС</p>
+        <h1>Как сделать многостраничный TIFF для ФНС без пересканирования</h1>
+        <p class="lead">Папка из PDF, фотографий и сканов должна превратиться не просто в файл с расширением .tiff, а в читаемый документ с правильным порядком страниц и техническими параметрами.</p>
+        <div class="article-meta">
+          <span>Обновлено 20 июля 2026</span>
+          <span>7 минут чтения</span>
+          <span>Чек-лист внутри</span>
+        </div>
+      </header>
+
+      <div class="article-body">
+        <section class="article-section" id="short">
+          <h2>Короткий ответ</h2>
+          <p>Соберите страницы одного документа в правильной последовательности и подготовьте файл в параметрах, которые указаны для вашего канала отправки. Затем откройте готовый файл и проверьте каждую страницу в масштабе 100%: мелкий текст, подписи и печати должны читаться, а края документа — не обрезаться.</p>
+          <div class="quick-answer"><strong>Главная мысль:</strong> «многостраничный» означает, что все листы одного документа находятся внутри одного TIFF, а не лежат рядом отдельными файлами.</div>
+          <div class="note"><strong>Важно:</strong> эта статья носит справочный характер, не является официальным разъяснением ФНС или юридической рекомендацией. Перед отправкой сверяйте формат, разрешение, цветность и порядок подписания с текстом полученного требования и инструкцией используемого сервиса.</div>
+        </section>
+
+        <section class="article-section" id="requirements">
+          <h2>Четыре параметра, которые стоит проверить</h2>
+          <p>Технические требования зависят от способа отправки и вида документооборота. Не существует одного набора настроек, который подходит для любого обращения в ФНС. Если требование, оператор ЭДО или регистрационный сценарий указывает на многостраничный TIF, приоритет имеют именно эти указания.</p>
+          <div class="spec-grid">
+            <div class="spec-card"><span>Для регистрации</span><strong>300 × 300 DPI</strong></div>
+            <div class="spec-card"><span>Для регистрации</span><strong>BW, до 1 бита</strong></div>
+            <div class="spec-card"><span>Для ТКС: неформализованные документы</span><strong>150–300 DPI</strong></div>
+            <div class="spec-card"><span>Для ТКС: неформализованные документы</span><strong>256 градаций серого</strong></div>
+          </div>
+          <p>1-битный профиль означает, что точка может быть только белой или чёрной. Он подходит не для каждой ситуации: при передаче неформализованных документов по ТКС приказ ФНС от 10.07.2024 № ЕД-7-26/547@ устанавливает диапазон 150–300 DPI и 256 градаций серого. Это иной сценарий, поэтому не переносите настройки регистрации на него автоматически.</p>
+          <div class="note">Не меняйте параметры вслепую только ради меньшего размера. Сначала определите сценарий отправки, затем добейтесь читаемости и только после этого проверяйте вес файла и ограничения системы.</div>
+          <p class="source-line">Официальные источники: <a href="https://www.nalog.gov.ru/rn77/about_fts/docs/15074631/" target="_blank" rel="noreferrer">приказ ФНС от 10.07.2024 № ЕД-7-26/547@</a> — для неформализованных документов по ТКС; требования к регистрации разобраны в <a href="/tiff-dlya-registracii-ooo-ip">отдельной инструкции</a>.</p>
+        </section>
+
+        <section class="article-section" id="steps">
+          <h2>Как собрать TIFF из PDF, JPG и сканов</h2>
+          <ol class="steps">
+            <li><strong>Разделите пакет на документы.</strong> Договор на пяти листах — один файл. Акт и счёт-фактура — два разных файла, если в описи они идут как разные документы.</li>
+            <li><strong>Расставьте страницы.</strong> Проверьте не только номера листов, но и обороты, приложения, дополнительные соглашения. Файл открывается сверху вниз именно в заданной последовательности.</li>
+            <li><strong>Выберите параметры для своего сценария.</strong> Стандартный профиль редактора готовит многостраничный TIFF 300 DPI в чёрно-белом виде; используйте его, когда такие параметры совместимы с требованиями получателя. Исходники можно добавлять в PDF, JPG, PNG, TIF или TIFF.</li>
+            <li><strong>Просмотрите результат.</strong> Не ограничивайтесь первой страницей. Особенно внимательно проверьте таблицы, реквизиты, рукописные пометки, печати и тонкие линии.</li>
+            <li><strong>Назовите файл понятно.</strong> Например, <em>dogovor-15-2026.tiff</em> быстрее найти и сопоставить с описью, чем <em>scan0001.tif</em>.</li>
+          </ol>
+          <a class="inline-cta" href="/editor-dlya-fns">
+            <div><span>Практика вместо настроек</span><strong>Собрать многостраничный TIFF в редакторе</strong></div>
+            <span class="action-chevron">&gt;</span>
+          </a>
+        </section>
+
+        <section class="article-section" id="quality">
+          <h2>Почему хороший PDF иногда превращается в плохой TIFF</h2>
+          <p>PDF может содержать настоящий текст и векторные линии. При преобразовании в TIFF каждая страница становится изображением. Если выбрать слишком низкое разрешение или агрессивно отделить чёрное от белого, тонкие символы распадутся, серые подписи исчезнут, а штрихкоды потеряют чёткость.</p>
+          <h3>На что смотреть при визуальной проверке</h3>
+          <ul class="checklist">
+            <li>все страницы на месте и идут в нужном порядке;</li>
+            <li>текст читается при масштабе 100%, а не только после увеличения;</li>
+            <li>подписи, печати и светлые карандашные отметки сохранились;</li>
+            <li>ни один край страницы, номер листа или столбец таблицы не обрезан;</li>
+            <li>нет пустых разворотов, случайных фотографий и дублей;</li>
+            <li>файл открывается как один документ и показывает ожидаемое число страниц.</li>
+          </ul>
+        </section>
+
+        <section class="article-section" id="mistakes">
+          <h2>Пять ошибок, из-за которых приходится переделывать файл</h2>
+          <div class="mistakes">
+            <div class="mistake"><strong>Один лист — один TIFF</strong><p>Такой набор неудобно сопоставлять с многостраничным документом. Листы одного документа лучше объединять внутри одного файла.</p></div>
+            <div class="mistake"><strong>Просто переименовать .pdf в .tiff</strong><p>Расширение не меняет внутренний формат. Файл нужно действительно преобразовать.</p></div>
+            <div class="mistake"><strong>Смешать разные документы</strong><p>Договор, акт и доверенность не становятся одним документом только потому, что отправляются в одном ответе.</p></div>
+            <div class="mistake"><strong>Не проверить последнюю страницу</strong><p>Ошибки часто прячутся в приложениях: альбомная таблица обрезалась, оборот пропущен, подпись стала белой.</p></div>
+            <div class="mistake"><strong>Считать TIFF заменой описи и подписи</strong><p>Формат решает задачу изображения. Порядок представления, опись и электронная подпись зависят от канала отправки.</p></div>
+          </div>
+        </section>
+
+        <section class="article-section" id="send">
+          <h2>Что сделать перед отправкой в налоговую</h2>
+          <p>Сверьте подготовленный файл с формулировкой требования и возможностями вашего оператора ЭДО или личного кабинета. Уточните допустимые типы документов, ограничение по размеру вложения, правила именования и способ подписания. Сам по себе корректный TIFF не подтверждает полномочия отправителя и не заменяет электронную подпись.</p>
+          <p>Если вы отвечаете на требование ФНС, проверьте срок ответа отдельно. Подготовка изображения — лишь один этап; юридически значимыми остаются содержание документа, комплектность пакета и корректная отправка. Весь процесс — от разбора основания до квитанции о приёме — описан в инструкции <a href="/kak-otvetit-na-trebovanie-fns">как ответить на требование ФНС</a>.</p>
+          <p>Для пакета на государственную регистрацию правила отличаются — мы разобрали их в отдельной статье: <a href="/tiff-dlya-registracii-ooo-ip">как подготовить TIFF для регистрации ООО или ИП</a>.</p>
+        </section>
+
+        <section class="article-section" id="faq">
+          <h2>Частые вопросы</h2>
+          <div class="faq">
+            <details><summary>Чем TIF отличается от TIFF?</summary><div class="faq-answer">Для пользователя это одно семейство формата. Короткое расширение .tif появилось из-за старого ограничения на три символа. Важно не название расширения, а содержимое и параметры файла.</div></details>
+            <details><summary>Можно ли сделать один TIFF из нескольких PDF?</summary><div class="faq-answer">Да. Страницы нескольких исходников можно преобразовать и объединить. Но объединяйте их только тогда, когда они действительно составляют один документ.</div></details>
+            <details><summary>Почему цветной скан стал чёрно-белым?</summary><div class="faq-answer">Профиль BW с глубиной 1 бит оставляет только белые и чёрные точки. Поэтому до отправки важно проверить, сохранились ли светлые подписи, печати и тонкие линии.</div></details>
+            <details><summary>Всегда ли нужен TIFF с разрешением 300 DPI?</summary><div class="faq-answer">Нет. Для регистрации многостраничный TIF формируют с разрешением 300 × 300 DPI и глубиной цвета до 1 бита. Для неформализованных документов по ТКС действует другой ориентир: от 150 до 300 DPI с использованием 256 градаций серого. Всегда следуйте требованиям конкретного канала и документа.</div></details>
+            <details><summary>Нужен ли TIFF для любого ответа ФНС?</summary><div class="faq-answer">Нет. Допустимый формат зависит от вида документа, требования и канала передачи. Используйте TIFF, когда он предусмотрен вашим сценарием, и сверяйтесь с инструкцией оператора или ФНС.</div></details>
+          </div>
+        </section>
+      </div>
+    </article>
+
+    <aside class="article-aside">
+      <nav class="toc" aria-label="Содержание статьи">
+        <p>В этой статье</p>
+        <a href="#short">Короткий ответ</a>
+        <a href="#requirements">Параметры TIFF</a>
+        <a href="#steps">Пошаговая сборка</a>
+        <a href="#quality">Проверка качества</a>
+        <a href="#mistakes">Типичные ошибки</a>
+        <a href="#send">Перед отправкой</a>
+        <a href="#faq">Частые вопросы</a>
+      </nav>
+      <div class="aside-cta">
+        <span>TIFF для ФНС</span>
+        <strong>Параметры выберет сервис</strong>
+        <a href="/editor-dlya-fns">Открыть редактор <span class="action-chevron">&gt;</span></a>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="site-footer">
+    <span>© 2026 ФНСКит · независимый технический сервис</span>
+    <nav aria-label="Ссылки в подвале">
+      <a href="/">Главная</a>
+      <a href="/privacy">Политика ПДн</a>
+      <a href="/kak-sdelat-mnogostranichnyy-tiff-dlya-fns">TIFF для ФНС</a>
+      <a href="/tiff-dlya-registracii-ooo-ip">TIFF для регистрации</a>
+      <a href="https://www.nalog.gov.ru/" target="_blank" rel="noreferrer">ФНС России</a>
+    </nav>
+  </footer>
+</body>
+</html>

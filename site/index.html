@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="ru" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex,nofollow" />
+  <meta name="description" content="Онлайн-сервис подготовки PDF и многостраничного TIFF для требований ФНС, НДС и электронной регистрации ООО или ИП: нужные DPI, цвет и сжатие уже настроены." />
+  <meta name="keywords" content="PDF для налоговой, TIFF для налоговой, PDF для ФНС, TIFF для ФНС, многостраничный PDF, многостраничный TIFF, TIFF для регистрации ООО, TIFF для регистрации ИП, 300 DPI" />
+  <link rel="canonical" href="https://fnskit.sherhn.space/" />
+  <meta name="theme-color" content="#171815" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="ФНСКит" />
+  <meta property="og:locale" content="ru_RU" />
+  <meta property="og:title" content="PDF и TIFF для ФНС, НДС и регистрации ООО/ИП — ФНСКит" />
+  <meta property="og:description" content="Подготовка PDF и многостраничного TIFF для требований ФНС, НДС и регистрации ООО или ИП. Готовые профили параметров." />
+  <meta property="og:url" content="https://fnskit.sherhn.space/" />
+  <meta property="og:image" content="https://fnskit.sherhn.space/images/og.png" />
+  <meta property="og:image:width" content="1731" />
+  <meta property="og:image:height" content="909" />
+  <meta property="og:image:alt" content="ФНСКит — сервис подготовки PDF и TIFF для ФНС" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="PDF и TIFF для ФНС, НДС и регистрации ООО/ИП — ФНСКит" />
+  <meta name="twitter:description" content="Подготовка PDF и многостраничного TIFF для требований ФНС, НДС и регистрации ООО или ИП." />
+  <meta name="twitter:image" content="https://fnskit.sherhn.space/images/og.png" />
+  <title>PDF и TIFF для ФНС, НДС и регистрации ООО/ИП — ФНСКит</title>
+  <link rel="icon" href="/favicon.ico" type="image/x-icon" sizes="any" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png" />
+  <link rel="icon" type="image/svg+xml" href="/images/logo.svg" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png" />
+  <link rel="manifest" href="./site.webmanifest" />
+  <link rel="preload" href="/fonts/manrope-variable.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/fonts.css" />
+  <link rel="stylesheet" href="./css/tailwind.css?v=20260723-responsive" />
+  <link rel="stylesheet" href="./mobile.css?v=20261017-free" />
+  <script src="/js/config.js?v=20261017-api"></script>
+  <style>
+    body {
+      background-image: radial-gradient(rgba(23, 24, 21, .06) .7px, transparent .7px);
+      background-size: 9px 9px;
+    }
+    .grid-lines {
+      background-image:
+        linear-gradient(rgba(23, 24, 21, .055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(23, 24, 21, .055) 1px, transparent 1px);
+      background-size: 28px 28px;
+    }
+    .marquee {
+      min-width: max-content;
+      animation: marquee 24s linear infinite;
+      will-change: transform;
+    }
+    .marquee > div { flex-shrink: 0; }
+    .float { animation: float 6s ease-in-out infinite; }
+    .home-page main > section:first-child > .grid {
+      display: block;
+      max-width: none;
+    }
+    .home-hero { display: block; }
+.hero-emphasis {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+  display: inline-block;
+  padding: .03em .24em .08em;
+  font-weight: 900;
+  letter-spacing: -.03em;
+  -webkit-text-stroke: .55px currentColor;
+}
+.hero-emphasis::before,
+.hero-emphasis::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  z-index: -1;
+  border: 3.5px solid #c8ff18;
+}
+.hero-emphasis::before {
+  inset: -.13em -.18em -.1em;
+  border-radius: 47% 53% 49% 51% / 53% 45% 55% 47%;
+  transform: rotate(-2.25deg);
+}
+.hero-emphasis::after {
+  inset: -.1em -.14em -.14em;
+  border-width: 2.5px;
+  border-color: #d8ff58;
+  border-radius: 52% 48% 54% 46% / 46% 55% 45% 54%;
+  transform: rotate(1.4deg);
+}
+.action-chevron {
+  font-size: 1.15em;
+  font-weight: 900;
+}
+.action-chevron--centered {
+  display: grid;
+  place-items: center;
+  align-self: center;
+  line-height: 1;
+  transform: translateY(-.04em);
+}
+    @media (min-width: 1024px) {
+      .hero-copy { padding-top: 1.75rem; }
+    }
+    @keyframes marquee {
+      from { transform: translate3d(0, 0, 0); }
+      to { transform: translate3d(-25%, 0, 0); }
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0) rotate(-2deg); }
+      50% { transform: translateY(-9px) rotate(1deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+      }
+    }
+    ::selection { background: #C8FF32; color: #171815; }
+  </style>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://fnskit.sherhn.space/#organization",
+        "name": "ФНСКит",
+        "url": "https://fnskit.sherhn.space/",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://fnskit.sherhn.space/images/logo.svg"
+        },
+        "email": "support@fnskit.sherhn.space"
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://fnskit.sherhn.space/#website",
+        "url": "https://fnskit.sherhn.space/",
+        "name": "ФНСКит",
+        "description": "Подготовка PDF и многостраничного TIFF для требований ФНС, НДС и регистрации ООО или ИП.",
+        "inLanguage": "ru-RU",
+        "publisher": { "@id": "https://fnskit.sherhn.space/#organization" }
+      },
+      {
+        "@type": "WebApplication",
+        "@id": "https://fnskit.sherhn.space/#webapp",
+        "name": "ФНСКит",
+        "url": "https://fnskit.sherhn.space/",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web",
+        "browserRequirements": "Requires JavaScript. Requires HTML5.",
+        "inLanguage": "ru-RU",
+        "description": "Онлайн-сервис подготовки PDF и многостраничного TIFF для требований ФНС, НДС и электронной регистрации ООО или ИП с готовыми профилями параметров.",
+        "publisher": { "@id": "https://fnskit.sherhn.space/#organization" }
+      }
+    ]
+  }
+  </script>
+</head>
+<body class="home-page overflow-x-hidden bg-paper font-sans text-ink antialiased">
+  <header class="relative z-50">
+    <nav class="mx-auto flex max-w-[1440px] items-center justify-between px-5 py-5 sm:px-8 lg:px-12" aria-label="Основная навигация">
+      <a href="#" class="group flex items-center gap-3" aria-label="ФНСКит — на главную">
+        <img src="./images/logo.svg" alt="" class="h-10 w-10 shrink-0 transition-transform group-hover:-rotate-3" />
+        <span class="text-lg font-black tracking-[-0.07em]">ФНСКит</span>
+      </a>
+
+      <div class="hidden items-center gap-8 text-sm font-semibold md:flex">
+        <a class="transition-opacity hover:opacity-50" href="#directions">Два направления</a>
+        <a class="transition-opacity hover:opacity-50" href="#how">Как это работает</a>
+        <a class="transition-opacity hover:opacity-50" href="#guides">Инструкции</a>
+      </div>
+
+      <div class="flex items-center gap-2 sm:gap-3">
+        <a href="/editor-dlya-fns" class="rounded-full border border-lime bg-lime px-4 py-3 text-sm font-extrabold text-ink shadow-[0_8px_20px_rgba(200,255,50,.3)] transition hover:-translate-y-0.5 hover:border-ink hover:bg-ink hover:text-white sm:px-5">
+          <span class="sm:hidden">Редактор</span><span class="hidden sm:inline">Открыть редактор</span>
+        </a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="relative mx-auto max-w-[1440px] px-5 pb-20 pt-10 sm:px-8 lg:px-12 lg:pb-28 lg:pt-16">
+      <div class="absolute -right-32 top-0 -z-10 h-[520px] w-[520px] rounded-full bg-lime/30 blur-[100px]"></div>
+      <div class="absolute -left-56 top-48 -z-10 h-[420px] w-[420px] rounded-full bg-violet/10 blur-[110px]"></div>
+
+      <div class="grid items-start gap-14 lg:grid-cols-[.88fr_1.12fr] lg:gap-16">
+        <div class="home-hero">
+          <div class="hero-copy">
+            <div class="inline-flex items-center gap-2 rounded-full border border-ink/10 bg-white/70 px-3 py-2 text-xs font-extrabold backdrop-blur">
+              <span class="h-2 w-2 rounded-full bg-violet"></span>
+              Подготовка документов для ФНС
+            </div>
+
+            <h1 class="mt-7 max-w-4xl text-[clamp(3.35rem,6.2vw,6.8rem)] font-black leading-[.9] tracking-[-0.085em]">
+              Документы<br />
+              <span class="relative inline-block">
+                <span class="relative z-10">для ФНС</span>
+                <span class="absolute -bottom-[20%] left-[-3%] h-[12%] w-[106%] -rotate-2 rounded-full bg-lime"></span>
+              </span>
+              — готовы.
+            </h1>
+          <p class="mt-12 max-w-3xl text-xl font-medium leading-relaxed text-ink/60 sm:text-2xl">
+              Один сервис. PDF или TIFF — для ответа на <strong class="hero-emphasis">требование ФНС</strong>; TIFF — для <strong class="hero-emphasis">регистрации ООО и ИП</strong>.
+            </p>
+            <a href="/editor-dlya-fns" class="group mt-8 inline-flex items-center gap-3 rounded-full bg-ink px-6 py-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:shadow-card">
+              Открыть редактор
+              <span class="action-chevron action-chevron--centered grid h-7 w-7 place-items-center rounded-full bg-lime text-ink transition-transform group-hover:translate-x-1">&gt;</span>
+            </a>
+          </div>
+
+          <div class="hero-stats mt-10 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div class="rounded-2xl border border-ink/10 bg-white/75 p-4 backdrop-blur">
+              <p class="text-2xl font-black tracking-[-0.05em]">300 DPI</p>
+              <p class="mt-1 text-xs font-semibold leading-relaxed text-ink/40">Разрешение для документов ФНС</p>
+            </div>
+            <div class="rounded-2xl border border-ink/10 bg-white/75 p-4 backdrop-blur">
+              <p class="text-2xl font-black tracking-[-0.05em]">Чёрно-белый</p>
+              <p class="mt-1 text-xs font-semibold leading-relaxed text-ink/40">Без оттенков серого и цвета</p>
+            </div>
+            <div class="rounded-2xl border border-ink/10 bg-white/75 p-4 backdrop-blur">
+              <p class="text-2xl font-black tracking-[-0.05em]">1 бит · Group 4</p>
+              <p class="mt-1 text-xs font-semibold leading-relaxed text-ink/40">Компактное сжатие ч/б страниц</p>
+            </div>
+            <div class="rounded-2xl border border-ink/10 bg-white/75 p-4 backdrop-blur">
+              <p class="text-2xl font-black tracking-[-0.05em]">Многостраничный</p>
+              <p class="mt-1 text-xs font-semibold leading-relaxed text-ink/40">Все страницы в одном PDF или TIFF</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="overflow-hidden border-y border-ink/10 bg-ink py-4 text-white">
+      <div class="marquee flex w-max items-center">
+        <div class="flex items-center gap-8 pr-8 text-sm font-extrabold uppercase tracking-[.14em]">
+          <span>Два профиля ФНС</span><span class="text-lime">✦</span><span>PDF или TIFF</span><span class="text-lime">✦</span><span>Автовыбор параметров</span><span class="text-lime">✦</span><span>Один документ — один файл</span><span class="text-lime">✦</span>
+        </div>
+        <div class="flex items-center gap-8 pr-8 text-sm font-extrabold uppercase tracking-[.14em]" aria-hidden="true">
+          <span>Два профиля ФНС</span><span class="text-lime">✦</span><span>PDF или TIFF</span><span class="text-lime">✦</span><span>Автовыбор параметров</span><span class="text-lime">✦</span><span>Один документ — один файл</span><span class="text-lime">✦</span>
+        </div>
+        <div class="flex items-center gap-8 pr-8 text-sm font-extrabold uppercase tracking-[.14em]" aria-hidden="true">
+          <span>Два профиля ФНС</span><span class="text-lime">✦</span><span>PDF или TIFF</span><span class="text-lime">✦</span><span>Автовыбор параметров</span><span class="text-lime">✦</span><span>Один документ — один файл</span><span class="text-lime">✦</span>
+        </div>
+        <div class="flex items-center gap-8 pr-8 text-sm font-extrabold uppercase tracking-[.14em]" aria-hidden="true">
+          <span>Два профиля ФНС</span><span class="text-lime">✦</span><span>PDF или TIFF</span><span class="text-lime">✦</span><span>Автовыбор параметров</span><span class="text-lime">✦</span><span>Один документ — один файл</span><span class="text-lime">✦</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="directions" class="mx-auto max-w-[1440px] scroll-mt-8 px-5 py-24 sm:px-8 lg:px-12 lg:py-32">
+      <div class="grid items-end gap-8 lg:grid-cols-2">
+        <div>
+          <p class="text-xs font-extrabold uppercase tracking-[.18em] text-violet">Не просто «сохранить как»</p>
+          <h2 class="mt-5 max-w-2xl text-4xl font-extrabold leading-[1.02] tracking-[-0.06em] sm:text-6xl">У каждой задачи — свой профиль.</h2>
+        </div>
+        <p class="max-w-xl text-base font-medium leading-relaxed text-ink/55 lg:justify-self-end">
+          Главное различие — глубина цвета и алгоритм сжатия. Сервис не заставляет разбираться в настройках: достаточно правильно выбрать назначение документа.
+        </p>
+      </div>
+
+      <div class="mt-12 grid gap-5 lg:grid-cols-2">
+        <article class="group relative overflow-hidden rounded-[2rem] bg-ink p-7 text-white sm:p-10">
+          <div class="absolute -right-16 -top-16 h-48 w-48 rounded-full border-[35px] border-violet/40"></div>
+          <div class="relative">
+            <div class="flex items-center justify-between gap-4">
+              <span class="rounded-full bg-lime px-3 py-2 text-[10px] font-extrabold uppercase tracking-[.08em] text-ink">Для бизнеса</span>
+              <span class="text-5xl font-extrabold text-white/10">01</span>
+            </div>
+            <h3 class="mt-16 min-h-[4.75rem] max-w-md text-3xl font-extrabold leading-tight tracking-[-0.055em] sm:min-h-[5.625rem] sm:text-4xl">НДС и документы по требованию</h3>
+            <p class="mt-4 min-h-12 max-w-lg text-sm font-medium leading-relaxed text-white/50">Для скан-образов и неформализованных приложений, которые передаются в ФНС через ТКС или оператора ЭДО.</p>
+            <dl class="mt-10 grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-4">
+              <div class="bg-white/5 p-4">
+                <dt class="text-[9px] font-extrabold uppercase tracking-[.1em] text-white/35">DPI</dt>
+                <dd class="mt-2 text-sm font-extrabold">300</dd>
+              </div>
+              <div class="bg-white/5 p-4">
+                <dt class="text-[9px] font-extrabold uppercase tracking-[.1em] text-white/35">Глубина</dt>
+                <dd class="mt-2 text-sm font-extrabold">8 бит</dd>
+              </div>
+              <div class="bg-white/5 p-4">
+                <dt class="text-[9px] font-extrabold uppercase tracking-[.1em] text-white/35">Цвет</dt>
+                <dd class="mt-2 text-sm font-extrabold">Серый</dd>
+              </div>
+              <div class="bg-white/5 p-4">
+                <dt class="text-[9px] font-extrabold uppercase tracking-[.1em] text-white/35">Формат</dt>
+                <dd class="mt-2 text-sm font-extrabold">PDF / TIFF</dd>
+              </div>
+            </dl>
+            <a href="/editor-dlya-fns" class="mt-8 inline-flex items-center gap-2 text-sm font-extrabold text-lime">Открыть в редакторе <span class="action-chevron">&gt;</span></a>
+          </div>
+        </article>
+
+        <article class="group relative overflow-hidden rounded-[2rem] bg-[#DDD9FF] p-7 sm:p-10">
+          <div class="absolute -bottom-24 -right-16 h-64 w-64 rounded-full border-[44px] border-violet/25"></div>
+          <div class="relative">
+            <div class="flex items-center justify-between gap-4">
+              <span class="rounded-full bg-white/80 px-3 py-2 text-[10px] font-extrabold uppercase tracking-[.08em]">Для регистрации</span>
+              <span class="text-5xl font-extrabold text-ink/10">02</span>
+            </div>
+            <h3 class="mt-16 min-h-[4.75rem] max-w-md text-3xl font-extrabold leading-tight tracking-[-0.055em] sm:min-h-[5.625rem] sm:text-4xl">Регистрация ООО или ИП</h3>
+            <p class="relative -top-9 mt-4 min-h-12 max-w-lg text-sm font-medium leading-relaxed text-ink/50 sm:-top-11">Для электронных образов бумажных документов, направляемых в регистрирующий орган.</p>
+            <dl class="mt-10 grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-ink/10 sm:grid-cols-4">
+              <div class="bg-white/50 p-4">
+                <dt class="text-[9px] font-extrabold uppercase tracking-[.1em] text-ink/35">DPI</dt>
+                <dd class="mt-2 text-sm font-extrabold">300</dd>
+              </div>
+              <div class="bg-white/50 p-4">
+                <dt class="text-[9px] font-extrabold uppercase tracking-[.1em] text-ink/35">Глубина</dt>
+                <dd class="mt-2 text-sm font-extrabold">1 бит</dd>
+              </div>
+              <div class="bg-white/50 p-4">
+                <dt class="text-[9px] font-extrabold uppercase tracking-[.1em] text-ink/35">Цвет</dt>
+                <dd class="mt-2 text-sm font-extrabold">Ч/б</dd>
+              </div>
+              <div class="bg-white/50 p-4">
+                <dt class="text-[9px] font-extrabold uppercase tracking-[.1em] text-ink/35">Сжатие</dt>
+                <dd class="mt-2 text-sm font-extrabold">CCITT G4</dd>
+              </div>
+            </dl>
+            <a href="/editor-dlya-registracii" class="mt-8 inline-flex items-center gap-2 text-sm font-extrabold text-violet">Открыть в редакторе <span class="action-chevron">&gt;</span></a>
+          </div>
+        </article>
+      </div>
+
+      <div class="mt-5 flex flex-col gap-3 rounded-2xl border border-ink/10 bg-white/70 p-5 text-xs font-semibold leading-relaxed text-ink/45 sm:flex-row sm:items-center sm:justify-between">
+        <p>ФНСКит не является официальным сервисом ФНС. Параметры основаны на опубликованных требованиях ведомства.</p>
+        <a class="shrink-0 font-extrabold text-ink underline decoration-ink/20 underline-offset-4" href="https://www.nalog.gov.ru/" target="_blank" rel="noreferrer">Перейти на nalog.gov.ru <span class="action-chevron">&gt;</span></a>
+      </div>
+    </section>
+
+    <section id="how" class="bg-white/60">
+      <div class="mx-auto max-w-[1440px] px-5 py-24 sm:px-8 lg:px-12 lg:py-32">
+        <div class="grid gap-12 lg:grid-cols-[.7fr_1.3fr]">
+          <div>
+            <p class="mb-5 text-xs font-extrabold uppercase tracking-[.18em] text-violet">Три простых шага</p>
+            <h2 class="max-w-sm text-4xl font-extrabold leading-[1.02] tracking-[-0.06em] sm:text-5xl">Параметры — на нас.</h2>
+            <p class="mt-5 max-w-sm text-sm font-medium leading-relaxed text-ink/45">Вам не понадобится отдельный редактор или знание технических терминов.</p>
+          </div>
+
+          <div class="grid gap-px overflow-hidden rounded-[2rem] border border-ink/10 bg-ink/10 md:grid-cols-3">
+            <article class="group bg-paper p-7 transition hover:bg-lime sm:p-8">
+              <div class="mb-14 text-sm font-extrabold text-ink/30">01</div>
+              <h3 class="text-xl font-extrabold tracking-[-0.04em]">Выберите задачу</h3>
+              <p class="mt-3 text-sm font-medium leading-relaxed text-ink/50">Требование ФНС и НДС или государственная регистрация ООО и ИП.</p>
+            </article>
+            <article class="group bg-paper p-7 transition hover:bg-lime sm:p-8">
+              <div class="mb-14 text-sm font-extrabold text-ink/30">02</div>
+              <h3 class="text-xl font-extrabold tracking-[-0.04em]">Загрузите страницы</h3>
+              <p class="mt-3 text-sm font-medium leading-relaxed text-ink/50">Добавьте PDF, сканы или фотографии в нужном порядке.</p>
+            </article>
+            <article class="group bg-paper p-7 transition hover:bg-lime sm:p-8">
+              <div class="mb-14 text-sm font-extrabold text-ink/30">03</div>
+              <h3 class="text-xl font-extrabold tracking-[-0.04em]">Скачайте файл</h3>
+              <p class="mt-3 text-sm font-medium leading-relaxed text-ink/50">Получите один многостраничный файл с проверенными параметрами.</p>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="security" class="mx-auto max-w-[1440px] px-5 pb-20 pt-14 sm:px-8 sm:pt-16 lg:px-12 lg:pb-28 lg:pt-20">
+      <div class="grid gap-3 md:grid-cols-3 md:gap-4">
+        <article class="rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-[0_8px_24px_rgba(23,24,21,.04)] transition hover:-translate-y-0.5 hover:shadow-card sm:p-6">
+          <span class="grid h-9 w-9 place-items-center rounded-xl bg-lime text-sm font-extrabold">×</span>
+          <h3 class="mt-4 text-base font-extrabold tracking-[-0.03em]">Автоудаление</h3>
+          <p class="mt-1.5 text-sm font-medium leading-relaxed text-ink/50">Файлы удаляются автоматически после обработки.</p>
+        </article>
+        <article class="rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-[0_8px_24px_rgba(23,24,21,.04)] transition hover:-translate-y-0.5 hover:shadow-card sm:p-6">
+          <span class="grid h-9 w-9 place-items-center rounded-xl bg-violet text-sm font-extrabold text-white">✓</span>
+          <h3 class="mt-4 text-base font-extrabold tracking-[-0.03em]">Проверка профиля</h3>
+          <p class="mt-1.5 text-sm font-medium leading-relaxed text-ink/50">Проверяем DPI, цвет, сжатие и число страниц.</p>
+        </article>
+        <article class="rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-[0_8px_24px_rgba(23,24,21,.04)] transition hover:-translate-y-0.5 hover:shadow-card sm:p-6">
+          <span class="action-chevron action-chevron--centered grid h-9 w-9 place-items-center rounded-xl bg-ink text-lime">&gt;</span>
+          <h3 class="mt-4 text-base font-extrabold tracking-[-0.03em]">Без регистрации</h3>
+          <p class="mt-1.5 text-sm font-medium leading-relaxed text-ink/50">Выберите профиль, добавьте файлы и скачайте результат.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="guides" class="mx-auto max-w-[1440px] px-5 pb-20 sm:px-8 lg:px-12 lg:pb-28">
+      <div class="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <p class="text-xs font-extrabold uppercase tracking-[.18em] text-violet">Разобраться до отправки</p>
+          <h2 class="mt-4 max-w-3xl text-4xl font-extrabold leading-[1.02] tracking-[-0.06em] sm:text-5xl">Инструкции без канцелярита.</h2>
+        </div>
+        <p class="max-w-md text-sm font-medium leading-relaxed text-ink/50">От первого чтения требования до регистрации бизнеса: что делать, где проверять и на каком этапе действительно нужен PDF или TIFF.</p>
+      </div>
+      <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <a href="/kak-otvetit-na-trebovanie-fns" class="group relative flex min-h-[330px] flex-col overflow-hidden rounded-[2rem] bg-lime p-7 transition hover:-translate-y-1 hover:shadow-soft sm:p-9">
+          <div class="absolute -bottom-24 -right-20 h-64 w-64 rounded-full border-[42px] border-ink/10"></div>
+          <p class="relative text-[11px] font-extrabold uppercase tracking-[.16em]">Налоговый контроль · 12 минут</p>
+          <h3 class="relative mt-8 max-w-xl text-3xl font-extrabold leading-[1.02] tracking-[-0.055em] sm:text-4xl">Как ответить на требование ФНС</h3>
+          <p class="relative mt-5 max-w-lg text-sm font-semibold leading-relaxed text-ink/60">Как определить срок, разобрать запрос по пунктам, собрать приложения и сохранить подтверждение приёма.</p>
+          <span class="relative mt-auto inline-flex items-center gap-2 pt-8 text-sm font-extrabold">Читать инструкцию <span class="action-chevron transition-transform group-hover:translate-x-1">&gt;</span></span>
+        </a>
+        <a href="/kak-zaregistrirovat-ooo-onlayn" class="group relative flex min-h-[330px] flex-col overflow-hidden rounded-[2rem] bg-[#DDD9FF] p-7 transition hover:-translate-y-1 hover:shadow-soft sm:p-9">
+          <div class="absolute -bottom-20 -right-16 h-56 w-56 rounded-full border-[38px] border-violet/20"></div>
+          <p class="relative text-[11px] font-extrabold uppercase tracking-[.16em]">Регистрация ООО · 13 минут</p>
+          <h3 class="relative mt-8 max-w-xl text-3xl font-extrabold leading-[1.02] tracking-[-0.055em] sm:text-4xl">Как зарегистрировать ООО онлайн</h3>
+          <p class="relative mt-5 max-w-lg text-sm font-semibold leading-relaxed text-ink/60">Адрес, доли, устав, Р11001, подпись и результат — без обещаний открыть компанию «в три клика».</p>
+          <span class="relative mt-auto inline-flex items-center gap-2 pt-8 text-sm font-extrabold">Читать инструкцию <span class="action-chevron transition-transform group-hover:translate-x-1">&gt;</span></span>
+        </a>
+        <a href="/kak-otkryt-ip-onlayn" class="group relative flex min-h-[330px] flex-col overflow-hidden rounded-[2rem] bg-ink p-7 text-white transition hover:-translate-y-1 hover:shadow-soft sm:p-9">
+          <div class="absolute -bottom-20 -right-16 h-56 w-56 rounded-full border-[38px] border-lime/20"></div>
+          <p class="relative text-[11px] font-extrabold uppercase tracking-[.16em] text-lime">Регистрация ИП · 10 минут</p>
+          <h3 class="relative mt-8 max-w-xl text-3xl font-extrabold leading-[1.02] tracking-[-0.055em] sm:text-4xl">Как открыть ИП онлайн</h3>
+          <p class="relative mt-5 max-w-lg text-sm font-semibold leading-relaxed text-white/60">Р21001, ОКВЭД, налоговый режим и первые действия после получения листа ЕГРИП.</p>
+          <span class="relative mt-auto inline-flex items-center gap-2 pt-8 text-sm font-extrabold">Читать инструкцию <span class="action-chevron text-lime transition-transform group-hover:translate-x-1">&gt;</span></span>
+        </a>
+        <a href="/kak-sdelat-mnogostranichnyy-tiff-dlya-fns" class="group relative flex min-h-[330px] flex-col overflow-hidden rounded-[2rem] bg-lime p-7 transition hover:-translate-y-1 hover:shadow-soft sm:p-9">
+          <div class="absolute -bottom-24 -right-20 h-64 w-64 rounded-full border-[42px] border-ink/10"></div>
+          <p class="relative text-[11px] font-extrabold uppercase tracking-[.16em]">Ответ на требование · 7 минут</p>
+          <h3 class="relative mt-8 max-w-xl text-3xl font-extrabold leading-[1.02] tracking-[-0.055em] sm:text-4xl">Как сделать многостраничный TIFF для ФНС</h3>
+          <p class="relative mt-5 max-w-lg text-sm font-semibold leading-relaxed text-ink/60">300 DPI, 1 бит, порядок страниц и проверка мелкого текста — от исходников до готового файла.</p>
+          <span class="relative mt-auto inline-flex items-center gap-2 pt-8 text-sm font-extrabold">Читать инструкцию <span class="action-chevron transition-transform group-hover:translate-x-1">&gt;</span></span>
+        </a>
+        <a href="/tiff-dlya-registracii-ooo-ip" class="group relative flex min-h-[330px] flex-col overflow-hidden rounded-[2rem] bg-[#DDD9FF] p-7 transition hover:-translate-y-1 hover:shadow-soft sm:p-9">
+          <div class="absolute -bottom-20 -right-16 h-56 w-56 rounded-full border-[38px] border-violet/20"></div>
+          <p class="relative text-[11px] font-extrabold uppercase tracking-[.16em]">Регистрация бизнеса · 8 минут</p>
+          <h3 class="relative mt-8 max-w-xl text-3xl font-extrabold leading-[1.02] tracking-[-0.055em] sm:text-4xl">TIFF для регистрации ООО и ИП</h3>
+          <p class="relative mt-5 max-w-lg text-sm font-semibold leading-relaxed text-ink/60">Когда выбирать TIFF, как разделить документы по файлам и что проверить перед подписанием пакета.</p>
+          <span class="relative mt-auto inline-flex items-center gap-2 pt-8 text-sm font-extrabold">Читать инструкцию <span class="action-chevron transition-transform group-hover:translate-x-1">&gt;</span></span>
+        </a>
+      </div>
+    </section>
+
+    <section class="mx-auto max-w-[1440px] px-5 pb-8 sm:px-8 lg:px-12">
+      <div class="relative overflow-hidden rounded-[2rem] bg-[#DDD9FF] px-6 py-16 text-center sm:px-12 sm:py-24">
+        <div class="absolute -left-16 -top-16 h-52 w-52 rounded-full border-[36px] border-ink/10"></div>
+        <div class="absolute -bottom-20 -right-10 h-64 w-64 rounded-full border-[45px] border-violet/35"></div>
+        <p class="relative text-xs font-extrabold uppercase tracking-[.18em]">Начать с правильного выбора</p>
+        <h2 class="relative mx-auto mt-5 max-w-4xl text-4xl font-extrabold leading-[.98] tracking-[-0.065em] sm:text-6xl">Куда отправляете документ?</h2>
+        <div class="relative mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <a href="/editor-dlya-fns" class="inline-flex items-center gap-3 rounded-full bg-ink px-7 py-4 text-sm font-bold text-white transition hover:-translate-y-1 hover:shadow-soft">НДС и требования <span class="action-chevron text-lime">&gt;</span></a>
+          <a href="/editor-dlya-registracii" class="inline-flex items-center gap-3 rounded-full border border-ink/15 bg-white/70 px-7 py-4 text-sm font-bold transition hover:-translate-y-1 hover:bg-white hover:shadow-card">Регистрация ООО / ИП <span class="action-chevron text-violet">&gt;</span></a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="mx-auto flex max-w-[1440px] flex-col gap-6 px-5 py-10 text-sm sm:px-8 md:flex-row md:items-center md:justify-between lg:px-12">
+    <div class="flex shrink-0 items-center gap-3 whitespace-nowrap font-black tracking-[-0.06em]">
+      <img src="./images/logo.svg" alt="" class="h-8 w-8 shrink-0" />
+      ФНСКит
+    </div>
+    <p class="font-medium text-ink/40">Сервис не является официальным продуктом ФНС России.</p>
+    <div class="flex flex-wrap gap-x-5 gap-y-2 font-semibold">
+      <a class="hover:opacity-50" href="/privacy">Политика ПДн</a>
+      <a class="hover:opacity-50" href="/consent">Согласие</a>
+      <a class="hover:opacity-50" href="#guides">Инструкции</a>
+      <a class="hover:opacity-50" href="/kak-otvetit-na-trebovanie-fns">Ответ ФНС</a>
+      <a class="hover:opacity-50" href="/kak-zaregistrirovat-ooo-onlayn">Открыть ООО</a>
+      <a class="hover:opacity-50" href="/kak-otkryt-ip-onlayn">Открыть ИП</a>
+      <a class="hover:opacity-50" href="/kak-sdelat-mnogostranichnyy-tiff-dlya-fns">TIFF для ФНС</a>
+      <a class="hover:opacity-50" href="/tiff-dlya-registracii-ooo-ip">TIFF для регистрации</a>
+      <a class="hover:opacity-50" href="/tiff-viewer">Просмотр TIFF</a>
+      <a class="hover:opacity-50" href="mailto:support@fnskit.sherhn.space">Контакт</a>
+      <a class="hover:opacity-50" href="mailto:support@fnskit.sherhn.space?subject=Предложить%20улучшение%20для%20ФНСКита">Предложить улучшение</a>
+    </div>
+  </footer>
+
+</body>
+</html>
