@@ -1,0 +1,17 @@
+{
+  "name": "fnskit-site",
+  "private": true,
+  "description": "Сборка статики сайта: Tailwind CSS и минификация JS",
+  "scripts": {
+    "build": "npm run build:css && npm run build:js",
+    "build:css": "tailwindcss -i ./src/tailwind.css -o ./dist/css/tailwind.css --minify",
+    "build:js": "node scripts/build-js.mjs",
+    "watch:css": "tailwindcss -i ./src/tailwind.css -o ./dist/css/tailwind.css --watch"
+  },
+  "devDependencies": {
+    "pdfjs-dist": "^6.1.200",
+    "tailwindcss": "3.4.19",
+    "terser": "5.49.0",
+    "utif": "^3.1.0"
+  }
+}
