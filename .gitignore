@@ -218,3 +218,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Проект
+!/site
+.env*
+!.env.example
+.idea/
+node_modules/
+site/dist/
+
+# Внутренние планы, в репозиторий не попадают
+docs/PLAN.md
