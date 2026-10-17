@@ -1,0 +1,139 @@
+# Продакшен-вариант стека: образы берутся готовыми из ghcr, а не собираются на
+# сервере. Собирать на машине с 400 МБ ОЗУ дорого — сборка съедает больше, чем
+# весь работающий стек. Локальная разработка остаётся на docker-compose.yml,
+# который собирает из исходников.
+#
+# Тег задаётся переменной IMAGE_TAG (по умолчанию latest): в панели Dokploy её
+# можно переставить на конкретный коммит и получить откат без пересборки.
+#
+# Настройки берутся из `.env` рядом с этим файлом, а не из `../.env`, как в
+# локальном варианте: Dokploy сам пишет переменные из вкладки Environment
+# в `.env` того каталога, где лежит compose-файл. В Git этот `.env` не
+# попадает — на сервере его создаёт панель, локально надо положить рядом.
+#
+# Отличия от docker-compose.yml, все намеренные:
+#
+#   * образы берутся из ghcr, а не собираются;
+#   * `.env` читается рядом с файлом — его туда кладёт панель Dokploy;
+#   * `cpus` у processor равен 1: на сервере одно ядро, больший лимит Docker
+#     просто не принимает;
+#   * на хост не публикуется ни один порт. Сервер общий с другими проектами
+#     Dokploy, и `8080` или `8082` на нём уже могут быть заняты —
+#     деплой падал бы на «port is already allocated». Наружу и так смотрит
+#     только nginx через Traefik, а сервисы находят друг друга по именам
+#     внутри сети compose. Для отладки на сервере есть `docker exec`;
+#   * processor сидит только во внутренней сети backend (без выхода наружу).
+#     В локальном файле он дополнительно подключён к default ради порта на
+#     localhost.
+#
+# Лимиты памяти, тома, capabilities и security_opt должны совпадать с
+# локальным файлом.
+
+name: fnskit
+
+services:
+  processor:
+    image: ghcr.io/sherhn/fnskit-processor:${IMAGE_TAG:-latest}
+    environment:
+      MAX_TOTAL_BYTES: ${MAX_TOTAL_BYTES}
+      MAX_PAGES: ${MAX_PAGES}
+      UPLOAD_CHUNK_BYTES: ${UPLOAD_CHUNK_BYTES}
+      MAX_PAGE_MEGAPIXELS: ${MAX_PAGE_MEGAPIXELS}
+      MAX_RENDERED_MEGABYTES: ${MAX_RENDERED_MEGABYTES}
+      MAX_STAGED_MEGABYTES: ${MAX_STAGED_MEGABYTES}
+      MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS}
+      PROCESSING_QUEUE_TIMEOUT_SECONDS: ${PROCESSING_QUEUE_TIMEOUT_SECONDS}
+      PROCESSING_TIMEOUT_SECONDS: ${PROCESSING_TIMEOUT_SECONDS}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED}
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS}
+      RATE_LIMIT_TIFF: ${RATE_LIMIT_TIFF}
+      TEMP_MAX_AGE_MINUTES: ${TEMP_MAX_AGE_MINUTES}
+      TEMP_SWEEP_INTERVAL_MINUTES: ${TEMP_SWEEP_INTERVAL_MINUTES}
+    restart: unless-stopped
+    # Только внутренняя сеть: processor разбирает недоверенные PDF и картинки
+    # сишными парсерами (MuPDF, Pillow, libtiff), и именно здесь всплывают
+    # CVE. Даже если эксплойт сработает, из контейнера нет пути ни в
+    # интернет, ни к опубликованным портам чужих проектов на этом сервере —
+    # единственный сосед по сети это nginx.
+    networks:
+      - backend
+    # На сервере одно ядро, и Docker не принимает лимит больше доступного —
+    # отсюда 1, а не 2, как в локальном файле. Обработка идёт по одной за раз
+    # (MAX_CONCURRENT_JOBS=1), так что упор в одно ядро и есть потолок скорости.
+    cpus: 1
+    # Худший разрешённый случай — страница на пределе MAX_PAGE_MEGAPIXELS=50 —
+    # даёт пик 211 МБ (замерено; с числом страниц не растёт). Потолок с
+    # запасом в полтора раза: при превышении ядро убивает контейнер целиком,
+    # вместе с чужими запросами, поэтому впритык ставить нельзя.
+    mem_limit: 320m
+    pids_limit: 256
+    read_only: true
+    # Рабочие файлы — на диск, а не в tmpfs: tmpfs это ОЗУ, а её на машине
+    # мало. Именованный том (а не bind) наследует права из образа, поэтому
+    # запись от uid 10001 работает без возни с chown. Обратная сторона: том
+    # переживает перезапуск, и мусор от прерванных запросов больше не
+    # исчезает сам — его убирает уборщик при старте и раз в четверть часа.
+    volumes:
+      - processor-workspace:/tmp
+    security_opt:
+      - no-new-privileges:true
+    # Процесс и так не root (uid 10001), capabilities ему не нужны вовсе.
+    cap_drop: [ALL]
+
+  # Единственный публичный сервис: раздаёт статику сайта и проксирует API.
+  # TLS и сертификаты берёт на себя Traefik (Dokploy), поэтому здесь только 80,
+  # а домен привязывается к этому сервису в панели Dokploy. Статика вшита в
+  # образ, поэтому правки сайта приезжают только с новым образом.
+  nginx:
+    image: ghcr.io/sherhn/fnskit-nginx:${IMAGE_TAG:-latest}
+    depends_on:
+      processor:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+    expose:
+      - "80"
+    # Наружу nginx смотрит только через Traefik (dokploy-network), к бэкендам
+    # ходит по backend; собственный выход в интернет ему не нужен.
+    networks:
+      - backend
+      - dokploy-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    cpus: 0.5
+    # Пик 24 МБ: тело загрузки не буферизуется, ответ отдаётся потоком.
+    mem_limit: 48m
+    pids_limit: 128
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=64m,mode=0755
+      - /var/run:size=8m,mode=0755
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    # Минимум для официального образа: мастер стартует от root, открывает :80
+    # (NET_BIND_SERVICE), создаёт и отдаёт воркерам каталоги кэша (CHOWN) и
+    # переключает воркеры на непривилегированного пользователя (SETUID/SETGID).
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID, NET_BIND_SERVICE]
+
+networks:
+  # Внутренняя сеть без выхода наружу (internal): сервисы видят друг друга по
+  # именам, но скомпрометированный контейнер — в первую очередь processor с
+  # его парсерами недоверенных файлов — не достучится ни до интернета, ни до
+  # шлюза хоста, а значит и до опубликованных портов других проектов на общем
+  # сервере.
+  backend:
+    internal: true
+  # Сеть Traefik из Dokploy. Локально её нужно создать один раз:
+  # docker network create dokploy-network
+  dokploy-network:
+    external: true
+
+volumes:
+  processor-workspace:

@@ -1,0 +1,109 @@
+name: fnskit
+
+services:
+  processor:
+    build:
+      context: ./processor
+    environment:
+      MAX_TOTAL_BYTES: ${MAX_TOTAL_BYTES}
+      MAX_PAGES: ${MAX_PAGES}
+      UPLOAD_CHUNK_BYTES: ${UPLOAD_CHUNK_BYTES}
+      MAX_PAGE_MEGAPIXELS: ${MAX_PAGE_MEGAPIXELS}
+      MAX_RENDERED_MEGABYTES: ${MAX_RENDERED_MEGABYTES}
+      MAX_STAGED_MEGABYTES: ${MAX_STAGED_MEGABYTES}
+      MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS}
+      PROCESSING_QUEUE_TIMEOUT_SECONDS: ${PROCESSING_QUEUE_TIMEOUT_SECONDS}
+      PROCESSING_TIMEOUT_SECONDS: ${PROCESSING_TIMEOUT_SECONDS}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED}
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS}
+      RATE_LIMIT_TIFF: ${RATE_LIMIT_TIFF}
+      TEMP_MAX_AGE_MINUTES: ${TEMP_MAX_AGE_MINUTES}
+      TEMP_SWEEP_INTERVAL_MINUTES: ${TEMP_SWEEP_INTERVAL_MINUTES}
+    restart: unless-stopped
+    # Публично — только /api/processor/... через nginx.
+    ports:
+      - "127.0.0.1:8080:8080"
+    # В проде processor сидит в одной backend без выхода наружу: он разбирает
+    # недоверенные PDF и картинки сишными парсерами, и именно здесь всплывают
+    # CVE. Локально default нужна ради порта на localhost.
+    networks:
+      - backend
+      - default
+    cpus: 2
+    # Худший разрешённый случай — страница на пределе MAX_PAGE_MEGAPIXELS=50 —
+    # даёт пик 211 МБ (замерено; с числом страниц не растёт). Потолок с
+    # запасом в полтора раза: при превышении ядро убивает контейнер целиком,
+    # вместе с чужими запросами, поэтому впритык ставить нельзя.
+    mem_limit: 320m
+    pids_limit: 256
+    read_only: true
+    # Рабочие файлы — на диск, а не в tmpfs: tmpfs это ОЗУ, а её на машине
+    # мало. Именованный том (а не bind) наследует права из образа, поэтому
+    # запись от uid 10001 работает без возни с chown. Обратная сторона: том
+    # переживает перезапуск, и мусор от прерванных запросов больше не
+    # исчезает сам — его убирает уборщик при старте и раз в четверть часа.
+    volumes:
+      - processor-workspace:/tmp
+    security_opt:
+      - no-new-privileges:true
+    # Процесс и так не root (uid 10001), capabilities ему не нужны вовсе.
+    cap_drop: [ALL]
+
+  # Единственный публичный сервис: раздаёт статику сайта и проксирует API.
+  # TLS и сертификаты берёт на себя Traefik (Dokploy), поэтому здесь только 80,
+  # а домен привязывается к этому сервису в панели Dokploy.
+  nginx:
+    build:
+      context: ../site
+    depends_on:
+      processor:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+    expose:
+      - "80"
+    ports:
+      - "127.0.0.1:8082:80"
+    # Наружу nginx смотрит только через Traefik (dokploy-network), к бэкендам
+    # ходит по backend; собственный выход в интернет ему не нужен.
+    networks:
+      - backend
+      - dokploy-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    cpus: 0.5
+    # Пик 24 МБ: тело загрузки не буферизуется, ответ отдаётся потоком.
+    mem_limit: 48m
+    pids_limit: 128
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=64m,mode=0755
+      - /var/run:size=8m,mode=0755
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    # Минимум для официального образа: мастер стартует от root, открывает :80
+    # (NET_BIND_SERVICE), создаёт и отдаёт воркерам каталоги кэша (CHOWN) и
+    # переключает воркеры на непривилегированного пользователя (SETUID/SETGID).
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID, NET_BIND_SERVICE]
+
+networks:
+  # Внутренняя сеть без выхода наружу (internal): сервисы видят друг друга по
+  # именам, но скомпрометированный контейнер не достучится ни до интернета,
+  # ни до шлюза хоста. Локально сервисы дополнительно подключены к default —
+  # иначе не работали бы порты, опубликованные на localhost.
+  backend:
+    internal: true
+  # Сеть Traefik из Dokploy. Локально её нужно создать один раз:
+  # docker network create dokploy-network
+  dokploy-network:
+    external: true
+
+volumes:
+  processor-workspace:
