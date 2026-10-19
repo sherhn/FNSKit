@@ -40,3 +40,5 @@ for (const name of files) {
 await copyFile(join(root, "node_modules", "utif", "UTIF.js"), join(vendor, "utif-3.1.0.js"));
 await copyFile(join(root, "node_modules", "pdfjs-dist", "build", "pdf.mjs"), join(vendor, "pdfjs-6.1.200.mjs"));
 await copyFile(join(root, "node_modules", "pdfjs-dist", "build", "pdf.worker.mjs"), join(vendor, "pdfjs-worker-6.1.200.mjs"));
+// Клиент входа для кабинета: один ES-модуль без зависимостей.
+await copyFile(join(root, "node_modules", "keycloak-js", "lib", "keycloak.js"), join(vendor, "keycloak-js-26.2.4.mjs"));

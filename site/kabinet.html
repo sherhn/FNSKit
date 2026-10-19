@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Кабинет компании ФНСКит: набор документов ИП и ООО для ФНС, банка и контрагентов, вход с двухфакторной защитой." />
+  <meta name="robots" content="noindex,nofollow" />
+  <meta name="theme-color" content="#171815" />
+  <link rel="canonical" href="https://fnskit.sherhn.space/kabinet" />
+  <link rel="icon" href="/favicon.ico" type="image/x-icon" sizes="any" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png" />
+  <link rel="icon" type="image/svg+xml" href="/images/logo.svg" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+  <link rel="preload" href="/fonts/manrope-variable.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/fonts.css" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="ФНСКит" />
+  <meta property="og:locale" content="ru_RU" />
+  <meta property="og:title" content="Кабинет компании — ФНСКит" />
+  <meta property="og:description" content="Набор документов ИП и ООО в одном месте, вход с двухфакторной защитой." />
+  <meta property="og:url" content="https://fnskit.sherhn.space/kabinet" />
+  <meta property="og:image" content="https://fnskit.sherhn.space/images/og.png" />
+  <title>Кабинет компании — ФНСКит</title>
+  <link rel="stylesheet" href="/css/tailwind.css?v=20261020-accounts" />
+  <link rel="stylesheet" href="/mobile.css?v=20261017-free" />
+  <script src="/js/kabinet.js?v=20261020-accounts" defer></script>
+</head>
+<body class="min-h-screen overflow-x-hidden bg-paper font-sans text-ink antialiased [background-image:radial-gradient(rgba(23,24,21,.06)_.7px,transparent_.7px)] [background-size:9px_9px]">
+  <header class="relative z-40 border-b border-ink/10 bg-paper/80 backdrop-blur-xl">
+    <nav class="mx-auto flex max-w-[1240px] items-center justify-between gap-4 px-5 py-4 sm:px-8" aria-label="Основная навигация">
+      <a href="/" class="group flex items-center gap-3" aria-label="ФНСКит — на главную">
+        <img src="/images/logo.svg" alt="" class="h-10 w-10 shrink-0 transition-transform group-hover:-rotate-3" />
+        <span class="hidden text-lg font-black tracking-[-0.07em] sm:block">ФНСКит</span>
+      </a>
+      <div class="flex items-center gap-3">
+        <a class="hidden text-sm font-bold transition-opacity hover:opacity-50 sm:inline" href="/editor-dlya-fns">Редактор</a>
+        <a id="headerHome" class="rounded-full border border-ink/15 bg-white/70 px-4 py-3 text-sm font-bold backdrop-blur transition hover:border-ink hover:bg-white" href="/">На главную</a>
+        <button id="logoutButton" type="button" class="hidden rounded-full border border-ink/15 bg-white/70 px-4 py-3 text-sm font-bold backdrop-blur transition hover:border-ink hover:bg-white">Выйти</button>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Пока keycloak-js проверяет вход, показываем только это. -->
+    <section id="stateLoading" class="mx-auto max-w-[1240px] px-5 py-24 text-center sm:px-8" aria-live="polite">
+      <p class="text-sm font-bold text-ink/45">Проверяем вход…</p>
+      <noscript><p class="mt-3 text-sm font-bold text-red-700">Для кабинета нужен включённый JavaScript.</p></noscript>
+    </section>
+
+    <!-- Гость: что такое кабинет и кнопки входа. -->
+    <section id="stateGuest" class="relative mx-auto hidden max-w-[1240px] px-5 pb-16 pt-10 sm:px-8 lg:pb-24 lg:pt-16">
+      <div class="pointer-events-none absolute -right-32 top-0 -z-10 h-[460px] w-[460px] rounded-full bg-lime/30 blur-[110px]"></div>
+      <div class="pointer-events-none absolute -left-48 top-48 -z-10 h-[360px] w-[360px] rounded-full bg-violet/10 blur-[100px]"></div>
+      <div class="max-w-3xl">
+        <p class="inline-flex items-center gap-2 rounded-full border border-ink/10 bg-white/75 px-3 py-2 text-[10px] font-extrabold uppercase tracking-[.16em] text-violet"><span class="h-2 w-2 rounded-full bg-lime"></span> Кабинет компании</p>
+        <h1 class="mt-5 text-[clamp(2.8rem,6vw,5.5rem)] font-extrabold leading-[.88] tracking-[-.08em]">Документы бизнеса —<br /><span class="relative inline-block"><span class="relative z-10">в одном месте.</span><span class="absolute -bottom-[16%] left-[-2%] h-[12%] w-[104%] -rotate-1 rounded-full bg-lime"></span></span></h1>
+        <p class="mt-8 max-w-2xl text-base font-medium leading-relaxed text-ink/55 sm:text-lg">Войдите, чтобы увидеть набор документов для вашего ИП или ООО: что держать под рукой для ФНС, банка и контрагентов и где это взять.</p>
+        <p id="guestMessage" class="mt-6 hidden rounded-xl px-4 py-3 text-sm font-bold" aria-live="polite"></p>
+        <div class="mt-8 flex flex-wrap gap-3">
+          <button id="loginButton" type="button" class="group inline-flex items-center gap-3 rounded-full bg-ink px-6 py-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:shadow-card">
+            Войти
+            <span class="grid h-7 w-7 place-items-center rounded-full bg-lime text-[1.15em] font-black leading-none text-ink transition-transform group-hover:translate-x-1" aria-hidden="true">&gt;</span>
+          </button>
+          <button id="registerButton" type="button" class="rounded-full border border-ink/15 bg-white/70 px-6 py-4 text-sm font-bold backdrop-blur transition hover:border-ink hover:bg-white">Создать аккаунт</button>
+        </div>
+      </div>
+
+      <div class="mt-14 grid gap-4 sm:grid-cols-3">
+        <article class="rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-[0_8px_24px_rgba(23,24,21,.04)]">
+          <span class="grid h-9 w-9 place-items-center rounded-xl bg-lime font-black" aria-hidden="true">1</span>
+          <h2 class="mt-5 text-lg font-extrabold tracking-[-.04em]">Набор под ваш бизнес</h2>
+          <p class="mt-2 text-sm font-medium leading-relaxed text-ink/55">Отдельные списки для ИП и ООО: регистрация, устав, налоговый режим, подпись и доверенности.</p>
+        </article>
+        <article class="rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-[0_8px_24px_rgba(23,24,21,.04)]">
+          <span class="grid h-9 w-9 place-items-center rounded-xl bg-violet font-black text-white" aria-hidden="true">2</span>
+          <h2 class="mt-5 text-lg font-extrabold tracking-[-.04em]">Вход с кодом из приложения</h2>
+          <p class="mt-2 text-sm font-medium leading-relaxed text-ink/55">Двухфакторная защита: к паролю добавляется код из Google Authenticator или другого приложения-аутентификатора.</p>
+        </article>
+        <article class="rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-[0_8px_24px_rgba(23,24,21,.04)]">
+          <span class="grid h-9 w-9 place-items-center rounded-xl bg-ink font-black text-lime" aria-hidden="true">3</span>
+          <h2 class="mt-5 text-lg font-extrabold tracking-[-.04em]">Хранение — следующий шаг</h2>
+          <p class="mt-2 text-sm font-medium leading-relaxed text-ink/55">Скоро документы можно будет загрузить и собирать из них пакет под запрос ФНС или банка.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- Вошедший пользователь: набор документов, защита входа, профиль. -->
+    <section id="stateUser" class="mx-auto hidden max-w-[1240px] px-5 pb-16 pt-10 sm:px-8 lg:pb-24 lg:pt-14">
+      <p id="userKicker" class="text-[11px] font-extrabold uppercase tracking-[.16em] text-violet">Кабинет компании</p>
+      <h1 id="userGreeting" class="mt-3 break-words text-[clamp(2.4rem,5vw,4.4rem)] font-extrabold leading-[.92] tracking-[-.075em]">Здравствуйте.</h1>
+      <p id="userSubtitle" class="mt-4 break-words text-base font-semibold text-ink/55 sm:text-lg"></p>
+      <p id="userMessage" class="mt-6 hidden rounded-xl px-4 py-3 text-sm font-bold" aria-live="polite"></p>
+
+      <div class="mt-8 grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+        <section class="rounded-[2rem] border border-ink/10 bg-white/85 p-5 shadow-soft sm:p-8" aria-labelledby="documentsTitle">
+          <div class="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p class="text-[11px] font-extrabold uppercase tracking-[.16em] text-ink/45">Базовый набор</p>
+              <h2 id="documentsTitle" class="mt-2 text-3xl font-extrabold tracking-[-.06em] sm:text-4xl">Документы</h2>
+            </div>
+            <p id="documentsCount" class="hidden rounded-full border border-ink/10 bg-paper px-3 py-2 text-xs font-extrabold text-ink/55"></p>
+          </div>
+          <p class="mt-5 rounded-2xl bg-[#DDD9FF] px-4 py-3 text-sm font-semibold leading-relaxed">Загрузка файлов появится на следующем этапе. Пока это чек-лист: что держать под рукой и где это взять. Отметка «Базовый» — документ есть почти у каждого, «По ситуации» — нужен не всем.</p>
+          <div id="documentsList" class="mt-7 space-y-8"></div>
+          <div id="documentsEmpty" class="mt-7 hidden rounded-2xl border border-dashed border-ink/15 p-6 text-center">
+            <p class="text-lg font-extrabold tracking-[-.03em]">Укажите форму бизнеса</p>
+            <p class="mt-2 text-sm font-medium text-ink/55">Набор документов для ИП и ООО разный — выберите свой в данных аккаунта.</p>
+            <button id="businessTypeButton" type="button" class="mt-5 rounded-full bg-ink px-5 py-3 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:shadow-card">Указать форму бизнеса</button>
+          </div>
+        </section>
+
+        <div class="space-y-5">
+          <section class="relative overflow-hidden rounded-[2rem] bg-ink p-6 text-white shadow-soft sm:p-7" aria-labelledby="securityTitle">
+            <div class="pointer-events-none absolute -bottom-24 -right-16 h-56 w-56 rounded-full border-[40px] border-lime/20" aria-hidden="true"></div>
+            <div class="relative">
+              <p class="text-[11px] font-extrabold uppercase tracking-[.16em] text-lime">Безопасность</p>
+              <h2 id="securityTitle" class="mt-2 text-2xl font-extrabold tracking-[-.05em]">Двухфакторная защита</h2>
+              <p id="otpStatus" class="mt-4 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-extrabold" aria-live="polite">Проверяем…</p>
+              <p id="otpHint" class="mt-3 text-sm font-medium leading-relaxed text-white/65"></p>
+              <ul id="otpDevices" class="mt-4 hidden space-y-2"></ul>
+              <button id="otpEnableButton" type="button" class="mt-5 hidden rounded-full bg-lime px-5 py-3 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:bg-white">Подключить приложение</button>
+              <div class="mt-6 space-y-3 border-t border-white/10 pt-5 text-sm font-bold">
+                <button id="passwordButton" type="button" class="flex w-full items-center justify-between text-left transition hover:text-lime">Сменить пароль <span class="text-[1.15em] font-black leading-none" aria-hidden="true">&gt;</span></button>
+                <a id="accountSecurityLink" class="flex items-center justify-between transition hover:text-lime" href="/auth/realms/fnskit/account/account-security/signing-in">Все настройки входа <span class="text-[1.15em] font-black leading-none" aria-hidden="true">&gt;</span></a>
+              </div>
+            </div>
+          </section>
+
+          <section class="rounded-[2rem] border border-ink/10 bg-white/85 p-6 shadow-[0_8px_24px_rgba(23,24,21,.04)] sm:p-7" aria-labelledby="profileTitle">
+            <p class="text-[11px] font-extrabold uppercase tracking-[.16em] text-ink/45">Профиль</p>
+            <h2 id="profileTitle" class="mt-2 text-2xl font-extrabold tracking-[-.05em]">Данные аккаунта</h2>
+            <dl class="mt-5 grid gap-px overflow-hidden rounded-2xl bg-ink/10">
+              <div class="bg-white p-4"><dt class="text-[9px] font-extrabold uppercase tracking-[.14em] text-ink/45">Имя</dt><dd id="profileName" class="mt-1 break-words text-sm font-extrabold">—</dd></div>
+              <div class="bg-white p-4"><dt class="text-[9px] font-extrabold uppercase tracking-[.14em] text-ink/45">Почта</dt><dd id="profileEmail" class="mt-1 break-words text-sm font-extrabold">—</dd></div>
+              <div class="bg-white p-4"><dt class="text-[9px] font-extrabold uppercase tracking-[.14em] text-ink/45">Форма бизнеса</dt><dd id="profileBusinessType" class="mt-1 text-sm font-extrabold">—</dd></div>
+              <div class="bg-white p-4"><dt class="text-[9px] font-extrabold uppercase tracking-[.14em] text-ink/45">Название</dt><dd id="profileCompany" class="mt-1 break-words text-sm font-extrabold">—</dd></div>
+            </dl>
+            <button id="profileButton" type="button" class="mt-5 rounded-full border border-ink/15 bg-white/70 px-5 py-3 text-sm font-bold backdrop-blur transition hover:border-ink hover:bg-white">Изменить данные</button>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <!-- Keycloak или API кабинета недоступны. -->
+    <section id="stateError" class="mx-auto hidden max-w-[720px] px-5 py-20 sm:px-8">
+      <div class="rounded-[2rem] border border-ink/10 bg-white/85 p-7 text-center shadow-soft sm:p-10">
+        <p class="text-[11px] font-extrabold uppercase tracking-[.16em] text-violet">Кабинет</p>
+        <h1 class="mt-3 text-3xl font-extrabold tracking-[-.06em] sm:text-4xl">Вход сейчас недоступен.</h1>
+        <p id="errorText" class="mt-4 text-sm font-medium leading-relaxed text-ink/55">Сервис входа не ответил. Попробуйте через пару минут — редактор и инструкции работают и без аккаунта.</p>
+        <button id="retryButton" type="button" class="mt-6 rounded-full bg-ink px-5 py-3 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:shadow-card">Попробовать снова</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="border-t border-ink/10">
+    <div class="mx-auto flex max-w-[1240px] flex-col gap-4 px-5 py-8 text-xs font-semibold text-ink/40 sm:px-8 md:flex-row md:items-center md:justify-between">
+      <p>© 2026 ФНСКит · кабинет компании</p>
+      <p>Сервис не является официальным продуктом ФНС России.</p>
+      <nav class="flex flex-wrap gap-x-4 gap-y-2" aria-label="Правовая информация">
+        <a class="transition hover:text-ink" href="/privacy">Политика ПДн</a>
+        <a class="transition hover:text-ink" href="/consent">Согласие</a>
+        <a class="transition hover:text-ink" href="mailto:support@fnskit.sherhn.space">Контакт</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>
