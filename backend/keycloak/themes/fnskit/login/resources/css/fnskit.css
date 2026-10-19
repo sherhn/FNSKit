@@ -1,0 +1,204 @@
+/*
+ * Страницы входа в цветах сайта (docs/DESIGN.md): бумажный фон с точечной
+ * сеткой, чернильные кнопки, фиолетовый фокус и ссылки, лаймовый акцент.
+ *
+ * Шрифт и логотип берутся с самого сайта по абсолютным путям: страницы входа
+ * отдаёт тот же nginx на том же домене (/auth/...), копировать их в тему не нужно.
+ */
+@font-face {
+  font-family: "Manrope";
+  src: url("/fonts/manrope-variable.woff2") format("woff2");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --fnskit-ink: #171815;
+  --fnskit-paper: #F5F4EF;
+  --fnskit-lime: #C8FF32;
+  --fnskit-violet: #7C68FF;
+  --fnskit-lavender: #DDD9FF;
+
+  --pf-v5-global--FontFamily--text: "Manrope", Arial, sans-serif;
+  --pf-v5-global--FontFamily--heading: "Manrope", Arial, sans-serif;
+  --pf-v5-global--FontFamily--redhat-updated--heading--sans-serif: "Manrope", Arial, sans-serif;
+  --pf-v5-global--FontFamily--redhat-updated--sans-serif: "Manrope", Arial, sans-serif;
+  --pf-v5-global--Color--100: var(--fnskit-ink);
+  --pf-v5-global--primary-color--100: var(--fnskit-ink);
+  --pf-v5-global--primary-color--200: #000;
+  --pf-v5-global--link--Color: var(--fnskit-violet);
+  --pf-v5-global--link--Color--hover: var(--fnskit-ink);
+  --pf-v5-global--active-color--100: var(--fnskit-violet);
+  --pf-v5-global--BorderRadius--sm: 12px;
+
+  --keycloak-card-top-color: var(--fnskit-lime);
+}
+
+::selection {
+  background: var(--fnskit-lime);
+  color: var(--fnskit-ink);
+}
+
+.login-pf body,
+body#keycloak-bg {
+  min-height: 100%;
+  background: var(--fnskit-paper);
+  background-image: radial-gradient(rgba(23, 24, 21, .06) .7px, transparent .7px);
+  background-size: 9px 9px;
+  color: var(--fnskit-ink);
+  font-family: "Manrope", Arial, sans-serif;
+}
+
+/* Шапка: знак ФНСКит и слово, как в шапках сайта. */
+#kc-header-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--fnskit-ink) !important;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.07em;
+  text-transform: none;
+}
+
+#kc-header-wrapper::before {
+  content: "";
+  width: 40px;
+  height: 40px;
+  flex: none;
+  background: url("/images/logo.svg") center / contain no-repeat;
+}
+
+/* Карточка формы — крупная скруглённая, с мягкой тенью из DESIGN.md. */
+.pf-v5-c-login__main {
+  border: 1px solid rgba(23, 24, 21, .1);
+  border-radius: 2rem;
+  box-shadow: 0 28px 80px rgba(23, 24, 21, .12);
+  overflow: hidden;
+}
+
+.pf-v5-c-login__main-header {
+  border-top-width: 6px;
+}
+
+.pf-v5-c-title,
+#kc-page-title {
+  font-weight: 900;
+  letter-spacing: -0.055em;
+}
+
+.pf-v5-c-form__label-text {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: rgba(23, 24, 21, .55);
+}
+
+.pf-v5-c-form-control {
+  --pf-v5-c-form-control--BorderRadius: 12px;
+  --pf-v5-c-form-control--before--BorderColor: rgba(23, 24, 21, .15);
+  --pf-v5-c-form-control--after--BorderColor: transparent;
+  --pf-v5-c-form-control--BackgroundColor: var(--fnskit-paper);
+  --pf-v5-c-form-control--hover--after--BorderColor: rgba(23, 24, 21, .25);
+  --pf-v5-c-form-control--focus--after--BorderColor: var(--fnskit-violet);
+  /* Глобальные цвета PatternFly задаёт выше по каскаду, чем :root темы,
+     поэтому нижнюю линию поля перекрашиваем на уровне компонента. */
+  --pf-v5-c-form-control--hover--after--BorderBottomColor: rgba(23, 24, 21, .4);
+  --pf-v5-c-form-control--focus--after--BorderBottomColor: var(--fnskit-violet);
+  font-weight: 700;
+}
+
+.pf-v5-c-form-control:focus-within {
+  box-shadow: 0 0 0 4px rgba(124, 104, 255, .1);
+}
+
+/* Кнопки — «таблетки»: главная чернильная, второстепенная «стеклянная». */
+.pf-v5-c-button {
+  --pf-v5-c-button--BorderRadius: 999px;
+  font-weight: 800;
+}
+
+.pf-v5-c-button.pf-m-primary {
+  --pf-v5-c-button--m-primary--BackgroundColor: var(--fnskit-ink);
+  --pf-v5-c-button--m-primary--hover--BackgroundColor: #000;
+  --pf-v5-c-button--m-primary--focus--BackgroundColor: #000;
+  --pf-v5-c-button--m-primary--active--BackgroundColor: #000;
+  --pf-v5-c-button--m-primary--Color: #fff;
+  padding-block: 14px;
+}
+
+.pf-v5-c-button.pf-m-secondary {
+  --pf-v5-c-button--m-secondary--Color: var(--fnskit-ink);
+  --pf-v5-c-button--m-secondary--BackgroundColor: rgba(255, 255, 255, .7);
+  --pf-v5-c-button--m-secondary--hover--Color: var(--fnskit-ink);
+  --pf-v5-c-button--m-secondary--hover--BackgroundColor: #fff;
+  --pf-v5-c-button--after--BorderColor: rgba(23, 24, 21, .15);
+  --pf-v5-c-button--m-secondary--hover--after--BorderColor: var(--fnskit-ink);
+}
+
+.pf-v5-c-button:focus-visible,
+a:focus-visible {
+  outline: 3px solid rgba(124, 104, 255, .45);
+  outline-offset: 2px;
+}
+
+a {
+  font-weight: 700;
+}
+
+.pf-v5-c-check__input {
+  accent-color: var(--fnskit-violet);
+  width: 16px;
+  height: 16px;
+}
+
+/* Согласие на обработку ПДн в форме регистрации — бледно-фиолетовая плашка,
+   как .note на сайте. */
+#kc-registration-terms-text {
+  margin-top: 8px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: var(--fnskit-lavender);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+#kc-registration-terms-text a {
+  color: var(--fnskit-violet);
+  text-decoration: underline;
+  text-decoration-color: rgba(124, 104, 255, .3);
+  text-underline-offset: 2px;
+}
+
+/* QR-код настройки 2FA — на белой подложке, чтобы его читали все приложения. */
+#kc-totp-secret-qr-code {
+  padding: 12px;
+  border: 1px solid rgba(23, 24, 21, .1);
+  border-radius: 16px;
+  background: #fff;
+}
+
+.pf-v5-c-alert.pf-m-inline {
+  border-radius: 12px;
+}
+
+@media (max-width: 640px) {
+  .pf-v5-c-login__main {
+    border-radius: 1.35rem;
+  }
+
+  .pf-v5-c-form-control input,
+  .pf-v5-c-form-control select {
+    font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
