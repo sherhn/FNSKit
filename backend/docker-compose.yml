@@ -50,6 +50,134 @@ services:
     # Процесс и так не root (uid 10001), capabilities ему не нужны вовсе.
     cap_drop: [ALL]
 
+  # База Keycloak: аккаунты, сессии, настройки realm. Только внутренняя сеть.
+  keycloak-db:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Задайте KEYCLOAK_DB_PASSWORD в .env}
+    # Буферов и соединений — под одну маленькую базу: пул Keycloak ограничен
+    # десятью соединениями (KC_DB_POOL_MAX_SIZE).
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=20"]
+    restart: unless-stopped
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    cpus: 0.5
+    mem_limit: 128m
+    pids_limit: 64
+    # Сразу от пользователя postgres (uid 70 в alpine-образе): entrypoint не
+    # переключается с root, поэтому capabilities не нужны.
+    user: "70:70"
+    read_only: true
+    tmpfs:
+      - /var/run/postgresql:size=1m,uid=70,gid=70
+      - /tmp:size=16m,uid=70,gid=70
+    volumes:
+      - keycloak-db:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+  # Аккаунты: регистрация, вход, сброс пароля и двухфакторная защита (TOTP).
+  # Публично доступен только через nginx по /auth/ на домене сайта.
+  keycloak:
+    build:
+      context: ./keycloak
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    environment:
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Задайте KEYCLOAK_DB_PASSWORD в .env}
+      KC_DB_POOL_INITIAL_SIZE: 1
+      KC_DB_POOL_MIN_SIZE: 1
+      KC_DB_POOL_MAX_SIZE: 10
+      # Все ссылки, адреса в discovery и издатель токенов строятся от
+      # публичного адреса сайта, а не от того, по какому адресу пришёл запрос.
+      # cabinet берёт ключи по внутреннему http://keycloak:8080 — это работает
+      # и так: адрес JWKS задан ему явно, discovery он не читает.
+      KC_HOSTNAME: ${FNSKIT_SITE_URL:?Задайте FNSKIT_SITE_URL в .env}/auth
+      # Админка — только на localhost:8083: nginx её наружу не отдаёт.
+      KC_HOSTNAME_ADMIN: http://localhost:8083/auth
+      # TLS снимает Traefik, до Keycloak доходит обычный HTTP от nginx.
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_PROXY_TRUSTED_ADDRESSES: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      # Временный администратор realm master создаётся при первом старте.
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Задайте KEYCLOAK_ADMIN_PASSWORD в .env}
+      JAVA_OPTS_KC_HEAP: -XX:MaxRAMPercentage=50 -XX:InitialRAMPercentage=15
+      # Подставляются в realm при первом импорте (backend/keycloak/realm).
+      FNSKIT_SITE_URL: ${FNSKIT_SITE_URL}
+      FNSKIT_SMTP_HOST: ${FNSKIT_SMTP_HOST:-mailpit}
+      FNSKIT_SMTP_PORT: ${FNSKIT_SMTP_PORT:-1025}
+      FNSKIT_SMTP_FROM: ${FNSKIT_SMTP_FROM:-noreply@fnskit.sherhn.space}
+      FNSKIT_SMTP_STARTTLS: ${FNSKIT_SMTP_STARTTLS:-false}
+      FNSKIT_SMTP_AUTH: ${FNSKIT_SMTP_AUTH:-false}
+      FNSKIT_SMTP_USER: ${FNSKIT_SMTP_USER:-}
+      FNSKIT_SMTP_PASSWORD: ${FNSKIT_SMTP_PASSWORD:-}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8083:8080"
+    # backend — к базе и от nginx; default — выход наружу к SMTP-серверу.
+    networks:
+      - backend
+      - default
+    cpus: 2
+    mem_limit: 768m
+    pids_limit: 512
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+      - /opt/keycloak/data/tmp:size=64m,uid=1000,gid=0
+      # Журнал менеджера транзакций. Распределённых (XA) транзакций у
+      # Keycloak нет, восстанавливать после рестарта нечего — хватает tmpfs.
+      - /opt/keycloak/data/transaction-logs:size=16m,uid=1000,gid=0
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+  # Кабинет компании: проверяет токены Keycloak и отдаёт профиль и набор
+  # документов. Состояния не хранит, наружу — только через nginx.
+  cabinet:
+    build:
+      context: ./cabinet
+    environment:
+      KEYCLOAK_ISSUER: ${FNSKIT_SITE_URL}/auth/realms/fnskit
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/auth/realms/fnskit/protocol/openid-connect/certs
+    restart: unless-stopped
+    networks:
+      - backend
+    cpus: 0.5
+    mem_limit: 96m
+    pids_limit: 64
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+  # Только для локальной разработки: ловит письма Keycloak (подтверждение
+  # почты, сброс пароля). Веб-интерфейс — http://localhost:8025.
+  mailpit:
+    image: axllent/mailpit:v1.31.6@sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"
+    networks:
+      - backend
+      - default
+    mem_limit: 64m
+
   # Единственный публичный сервис: раздаёт статику сайта и проксирует API.
   # TLS и сертификаты берёт на себя Traefik (Dokploy), поэтому здесь только 80,
   # а домен привязывается к этому сервису в панели Dokploy.
@@ -107,3 +235,4 @@ networks:
 
 volumes:
   processor-workspace:
+  keycloak-db:
