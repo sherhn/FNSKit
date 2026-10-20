@@ -340,6 +340,23 @@ def main() -> None:
         after = http_request(urllib.request.build_opener(_NoRedirect), "GET", link["url"])
         check(after.status == 404 and "Ссылка больше не работает" in after.body,
               "отозванная ссылка → страница «ссылка не работает»")
+        no_date = http_request(api, "PATCH", f"{SITE}/api/cabinet/v1/documents/{file_id}",
+                               json.dumps({"doc_date": "2027-01-01"}),
+                               {**bearer, "Content-Type": "application/json"})
+        check(no_date.status == 422, "у устава срока нет — дата отклонена")
+        lease = http_request(
+            api, "POST",
+            f"{SITE}/api/cabinet/v1/documents?" + urllib.parse.urlencode({"kind": "legal_address", "filename": "аренда.pdf"}),
+            pdf, {**bearer, "Content-Type": "application/octet-stream"}).json()
+        due = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 20 * 86400))
+        dated = http_request(api, "PATCH", f"{SITE}/api/cabinet/v1/documents/{lease['id']}",
+                             json.dumps({"doc_date": due}), {**bearer, "Content-Type": "application/json"})
+        check(dated.status == 200 and dated.json()["days_left"] in (19, 20, 21),
+              "дата договора аренды сохранена, остаток дней посчитан", dated)
+        listing = http_request(api, "GET", f"{SITE}/api/cabinet/v1/documents", headers=bearer).json()
+        check(listing["reminders"]["email_reminders"] is True and listing["reminders"]["email"] == email,
+              "напоминания включены, адрес — из токена")
+        http_request(api, "DELETE", f"{SITE}/api/cabinet/v1/documents/{lease['id']}", headers=bearer)
         removed = http_request(api, "DELETE", f"{SITE}/api/cabinet/v1/documents/{file_id}", headers=bearer)
         check(removed.status == 204, "файл удалён")
 
