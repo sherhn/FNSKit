@@ -83,9 +83,9 @@
       "frontchannelLogout": true,
       "consentRequired": false,
       "rootUrl": "${FNSKIT_SITE_URL}",
-      "baseUrl": "/account",
+      "baseUrl": "/kabinet",
       "redirectUris": [
-        "${FNSKIT_SITE_URL}/account",
+        "${FNSKIT_SITE_URL}/kabinet",
         "${FNSKIT_SITE_URL}/silent-check-sso"
       ],
       "webOrigins": [
@@ -93,7 +93,7 @@
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "${FNSKIT_SITE_URL}/account",
+        "post.logout.redirect.uris": "${FNSKIT_SITE_URL}/kabinet",
         "oauth2.device.authorization.grant.enabled": "false",
         "use.refresh.tokens": "true"
       },
@@ -161,7 +161,7 @@
         "subComponents": {},
         "config": {
           "kc.user.profile.config": [
-            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"business_type\", \"displayName\": \"${fnskitBusinessType}\", \"group\": \"business\", \"validations\": {\"options\": {\"options\": [\"ip\", \"ooo\"]}}, \"annotations\": {\"inputType\": \"select\", \"inputOptionLabels\": {\"ip\": \"${fnskitBusinessType.ip}\", \"ooo\": \"${fnskitBusinessType.ooo}\"}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"company_name\", \"displayName\": \"${fnskitCompanyName}\", \"group\": \"business\", \"validations\": {\"length\": {\"max\": 200}}, \"annotations\": {\"inputHelperTextAfter\": \"${fnskitCompanyNameHelp}\"}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}], \"groups\": [{\"name\": \"user-metadata\", \"displayHeader\": \"User metadata\", \"displayDescription\": \"Attributes, which refer to user metadata\"}, {\"name\": \"business\", \"displayHeader\": \"${fnskitBusinessHeader}\", \"displayDescription\": \"${fnskitBusinessDescription}\"}]}"
+            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"business_type\", \"displayName\": \"${fnskitBusinessType}\", \"group\": \"business\", \"validations\": {\"options\": {\"options\": [\"ip\", \"ooo\"]}}, \"annotations\": {\"inputType\": \"select-radiobuttons\", \"inputOptionLabels\": {\"ip\": \"${fnskitBusinessType.ip}\", \"ooo\": \"${fnskitBusinessType.ooo}\"}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"company_name\", \"displayName\": \"${fnskitCompanyName}\", \"group\": \"business\", \"validations\": {\"length\": {\"max\": 200}}, \"annotations\": {\"inputHelperTextAfter\": \"${fnskitCompanyNameHelp}\"}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}], \"groups\": [{\"name\": \"user-metadata\", \"displayHeader\": \"User metadata\", \"displayDescription\": \"Attributes, which refer to user metadata\"}, {\"name\": \"business\", \"displayHeader\": \"${fnskitBusinessHeader}\", \"displayDescription\": \"${fnskitBusinessDescription}\"}]}"
           ]
         }
       }

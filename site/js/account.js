@@ -261,21 +261,28 @@
     ));
 
     const row = element("div", "mt-4 flex flex-wrap items-center gap-2");
-    const days = element("select", "field field-sm w-auto");
+    const days = element("div", "segmented");
+    days.setAttribute("role", "radiogroup");
     days.setAttribute("aria-label", "Срок действия ссылки");
-    for (const [value, label] of [["1", "на 1 день"], ["7", "на 7 дней"], ["30", "на 30 дней"]]) {
-      const option = element("option", "", label);
-      option.value = value;
-      option.selected = value === "7";
+    const groupName = `days-${file.id}`;
+    for (const [value, label] of [["1", "1 день"], ["7", "7 дней"], ["30", "30 дней"]]) {
+      const option = element("label");
+      const input = element("input");
+      input.type = "radio";
+      input.name = groupName;
+      input.value = value;
+      input.checked = value === "7";
+      option.append(input, element("span", "", label));
       days.append(option);
     }
+    const chosenDays = () => Number((days.querySelector("input:checked") || { value: "7" }).value);
     const create = button("Создать ссылку", BTN_PRIMARY, async () => {
       create.disabled = true;
       try {
         const response = await authorizedFetch(`${CABINET_API}/v1/documents/${file.id}/links`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ days: Number(days.value) })
+          body: JSON.stringify({ days: chosenDays() })
         });
         if (!response.ok) throw await failure(response, "Не удалось создать ссылку.");
         createdLink = { fileId: file.id, link: await response.json() };

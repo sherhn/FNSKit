@@ -100,6 +100,10 @@ body#keycloak-bg {
 /* Поля — «таблетки» с полной рамкой, как в кабинете. PatternFly рисует поле
    подчёркиванием через ::before и ::after: убираем его и рисуем рамку сами. */
 .pf-v5-c-form-control {
+  /* Обёртка у PatternFly — grid с выравниванием по верху: без этого текст
+     в поле прижимается к верхнему краю, а не стоит по центру. */
+  align-items: center;
+  align-content: center;
   min-height: 3rem;
   border: 1px solid rgba(23, 24, 21, .15);
   border-radius: 999px;
@@ -133,6 +137,60 @@ body#keycloak-bg {
 
 .pf-v5-c-form-control.pf-m-error,
 .pf-v5-c-form-control[aria-invalid="true"] {
+  border-color: #dc2626;
+}
+
+/* Выбор из нескольких вариантов — переключатель-«таблетки». Само радио
+   скрыто, но остаётся доступным с клавиатуры; выбранный вариант — чернильная
+   таблетка. */
+div:has(> .fnskit-choice) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.fnskit-choice {
+  position: relative;
+}
+
+.fnskit-choice__input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.fnskit-choice__label {
+  display: block;
+  padding: .8rem 1.25rem;
+  border: 1px solid rgba(23, 24, 21, .15);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--fnskit-ink);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.2;
+  transition: border-color .15s, background-color .15s, color .15s;
+}
+
+.fnskit-choice__input:hover + .fnskit-choice__label {
+  border-color: rgba(23, 24, 21, .35);
+}
+
+.fnskit-choice__input:checked + .fnskit-choice__label {
+  border-color: var(--fnskit-ink);
+  background: var(--fnskit-ink);
+  color: #fff;
+}
+
+.fnskit-choice__input:focus-visible + .fnskit-choice__label {
+  box-shadow: 0 0 0 4px rgba(124, 104, 255, .3);
+}
+
+.fnskit-choice__input[aria-invalid="true"] + .fnskit-choice__label {
   border-color: #dc2626;
 }
 
@@ -206,11 +264,79 @@ a {
   font-weight: 700;
 }
 
+/* Чекбокс — скруглённый квадрат в цветах сайта, а не системный. */
 .pf-v5-c-check__input {
-  accent-color: var(--fnskit-violet);
-  width: 18px;
-  height: 18px;
-  margin-top: 2px;
+  appearance: none;
+  display: inline-grid;
+  flex: none;
+  place-content: center;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  border: 1px solid rgba(23, 24, 21, .3);
+  border-radius: 7px;
+  background: #fff;
+  cursor: pointer;
+  transition: background-color .15s, border-color .15s;
+}
+
+.pf-v5-c-check__input:hover {
+  border-color: var(--fnskit-ink);
+}
+
+.pf-v5-c-check__input:checked {
+  border-color: var(--fnskit-ink);
+  background: var(--fnskit-ink);
+}
+
+.pf-v5-c-check__input:checked::after {
+  content: "";
+  width: 10px;
+  height: 6px;
+  margin-top: -2px;
+  border-bottom: 2px solid var(--fnskit-lime);
+  border-left: 2px solid var(--fnskit-lime);
+  transform: rotate(-45deg);
+}
+
+.pf-v5-c-check__input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(124, 104, 255, .3);
+}
+
+/* Чекбокс и подпись — в одну строку, подпись не липнет к рамке. */
+div:has(> .pf-v5-c-check__input) {
+  display: flex;
+  align-items: flex-start;
+  gap: .7rem;
+}
+
+div:has(> .pf-v5-c-check__input) > label {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+  padding-top: 2px;
+}
+
+/* Заголовок группы полей и подсказки — тише и мельче, чем сами поля. */
+[id^="header-"] {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--fnskit-violet);
+}
+
+[id^="description-"],
+[id^="form-help-text-"] {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: rgba(23, 24, 21, .55);
+}
+
+[id^="form-help-text-"] {
+  margin: 6px 0 0 1.25rem;
 }
 
 /* Согласие на обработку ПДн в форме регистрации — бледно-фиолетовая плашка,
