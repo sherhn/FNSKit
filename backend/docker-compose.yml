@@ -192,9 +192,19 @@ services:
       DB_PASSWORD: ${CABINET_DB_PASSWORD:?Задайте CABINET_DB_PASSWORD в .env}
       ENCRYPTION_KEY: ${CABINET_ENCRYPTION_KEY:?Задайте CABINET_ENCRYPTION_KEY в .env}
       PUBLIC_URL: ${FNSKIT_SITE_URL}
+      # Письма-напоминания о сроках документов идут через тот же SMTP, что и
+      # письма Keycloak.
+      SMTP_HOST: ${FNSKIT_SMTP_HOST:-mailpit}
+      SMTP_PORT: ${FNSKIT_SMTP_PORT:-1025}
+      SMTP_FROM: ${FNSKIT_SMTP_FROM:-noreply@fnskit.sherhn.space}
+      SMTP_STARTTLS: ${FNSKIT_SMTP_STARTTLS:-false}
+      SMTP_USER: ${FNSKIT_SMTP_USER:-}
+      SMTP_PASSWORD: ${FNSKIT_SMTP_PASSWORD:-}
     restart: unless-stopped
+    # backend — к базам и от nginx; default — выход к внешнему SMTP.
     networks:
       - backend
+      - default
     cpus: 0.5
     # Пока файл шифруется или расшифровывается, он целиком в памяти: до двух
     # передач по 20 МБ одновременно (MAX_CONCURRENT_TRANSFERS) плюс копии.
