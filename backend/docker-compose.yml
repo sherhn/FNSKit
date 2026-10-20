@@ -145,19 +145,60 @@ services:
       - no-new-privileges:true
     cap_drop: [ALL]
 
-  # Кабинет компании: проверяет токены Keycloak и отдаёт профиль и набор
-  # документов. Состояния не хранит, наружу — только через nginx.
+  # База кабинета: загруженные документы (зашифрованные) и ссылки на них.
+  # Отдельно от базы Keycloak: свои доступы, свои резервные копии.
+  cabinet-db:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    environment:
+      POSTGRES_DB: cabinet
+      POSTGRES_USER: cabinet
+      POSTGRES_PASSWORD: ${CABINET_DB_PASSWORD:?Задайте CABINET_DB_PASSWORD в .env}
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=20"]
+    restart: unless-stopped
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cabinet -d cabinet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    cpus: 0.5
+    mem_limit: 128m
+    pids_limit: 64
+    user: "70:70"
+    read_only: true
+    tmpfs:
+      - /var/run/postgresql:size=1m,uid=70,gid=70
+      - /tmp:size=16m,uid=70,gid=70
+    volumes:
+      - cabinet-db:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+  # Кабинет компании: проверяет токены Keycloak, отдаёт профиль и набор
+  # документов, хранит загруженные файлы. Наружу — только через nginx.
   cabinet:
     build:
       context: ./cabinet
+    depends_on:
+      cabinet-db:
+        condition: service_healthy
     environment:
       KEYCLOAK_ISSUER: ${FNSKIT_SITE_URL}/auth/realms/fnskit
       KEYCLOAK_JWKS_URL: http://keycloak:8080/auth/realms/fnskit/protocol/openid-connect/certs
+      DB_HOST: cabinet-db
+      DB_PASSWORD: ${CABINET_DB_PASSWORD:?Задайте CABINET_DB_PASSWORD в .env}
+      ENCRYPTION_KEY: ${CABINET_ENCRYPTION_KEY:?Задайте CABINET_ENCRYPTION_KEY в .env}
+      PUBLIC_URL: ${FNSKIT_SITE_URL}
     restart: unless-stopped
     networks:
       - backend
     cpus: 0.5
-    mem_limit: 96m
+    # Пока файл шифруется или расшифровывается, он целиком в памяти: до двух
+    # передач по 20 МБ одновременно (MAX_CONCURRENT_TRANSFERS) плюс копии.
+    mem_limit: 256m
     pids_limit: 64
     read_only: true
     tmpfs:
@@ -236,3 +277,4 @@ networks:
 volumes:
   processor-workspace:
   keycloak-db:
+  cabinet-db:
