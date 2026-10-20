@@ -8,7 +8,8 @@ docs/DOCUMENTS.md; меняете список здесь — поправьте
 для другого документа — только добавлять новые.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import date, timedelta
 from enum import StrEnum
 
 
@@ -30,6 +31,13 @@ class Level(StrEnum):
     SITUATIONAL = "situational"
 
 
+class DateKind(StrEnum):
+    # Дата окончания: подпись, доверенность, лицензия, аренда.
+    EXPIRES = "expires"
+    # Дата выдачи: выписка считается свежей ограниченное число дней.
+    ISSUED = "issued"
+
+
 @dataclass(frozen=True)
 class DocumentGroup:
     id: str
@@ -49,6 +57,11 @@ class DocumentKind:
     business_types: frozenset[BusinessType]
     # Предупреждение: срок действия, персональные данные.
     note: str | None = None
+    # Срок, по которому кабинет напоминает. У большинства документов его нет.
+    date_kind: DateKind | None = None
+    date_label: str | None = None
+    # Для ISSUED: сколько дней документ считается свежим.
+    fresh_days: int | None = None
 
 
 IP = frozenset({BusinessType.IP})
@@ -65,7 +78,7 @@ GROUPS: tuple[DocumentGroup, ...] = (
     DocumentGroup("identity", "Личные документы"),
 )
 
-DOCUMENTS: tuple[DocumentKind, ...] = (
+_BASE_DOCUMENTS: tuple[DocumentKind, ...] = (
     # --- Регистрация и учёт ---
     DocumentKind(
         id="egrip_record",
@@ -349,6 +362,36 @@ DOCUMENTS: tuple[DocumentKind, ...] = (
         note="Это персональные данные: держите копию в кабинете, только если она нужна под рукой.",
     ),
 )
+
+
+# Какие документы имеют срок. Выписку банки обычно просят не старше 30 дней —
+# это значение по умолчанию, а не требование закона: у конкретного банка оно
+# может быть другим.
+_DATE_RULES: dict[str, dict] = {
+    "egrip_extract": {"date_kind": DateKind.ISSUED, "date_label": "Дата формирования выписки", "fresh_days": 30},
+    "egrul_extract": {"date_kind": DateKind.ISSUED, "date_label": "Дата формирования выписки", "fresh_days": 30},
+    "signature_certificate": {"date_kind": DateKind.EXPIRES, "date_label": "Сертификат действует до"},
+    "power_of_attorney": {"date_kind": DateKind.EXPIRES, "date_label": "Доверенность действует до"},
+    "licenses": {"date_kind": DateKind.EXPIRES, "date_label": "Лицензия действует до"},
+    "ip_tax_regime": {"date_kind": DateKind.EXPIRES, "date_label": "Патент действует до"},
+    "legal_address": {"date_kind": DateKind.EXPIRES, "date_label": "Договор действует до"},
+    "premises": {"date_kind": DateKind.EXPIRES, "date_label": "Договор действует до"},
+}
+
+DOCUMENTS: tuple[DocumentKind, ...] = tuple(
+    replace(kind, **_DATE_RULES[kind.id]) if kind.id in _DATE_RULES else kind
+    for kind in _BASE_DOCUMENTS
+)
+KINDS_BY_ID: dict[str, DocumentKind] = {kind.id: kind for kind in DOCUMENTS}
+
+
+def due_date(kind: DocumentKind, doc_date: date | None) -> date | None:
+    """Когда документ перестаёт быть действующим или свежим."""
+    if doc_date is None or kind.date_kind is None:
+        return None
+    if kind.date_kind is DateKind.ISSUED:
+        return doc_date + timedelta(days=kind.fresh_days or 30)
+    return doc_date
 
 
 def documents_for(business_type: BusinessType) -> list[tuple[DocumentGroup, list[DocumentKind]]]:

@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 
-from app import main
+from app import main, reminders
 from app.auth import JwksCache, TokenVerifier
 from app.main import app
 from support import (
@@ -19,6 +19,7 @@ from support import (
 )
 
 PDF = b"%PDF-1.7\n" + b"x" * 2000
+DER = bytes([0x30, 0x82, 0x01, 0x00])
 OTHER_USER = "0d7e5a7c-2222-4c3b-9d00-aaaaaaaaaaaa"
 
 
@@ -214,6 +215,77 @@ class FilesApiTest(unittest.TestCase):
         with self.assertLogs("fnskit.cabinet", level="ERROR"):
             response = self.client.get(f"/v1/documents/{file['id']}/content", headers=self.auth())
         self.assertEqual(response.status_code, 500)
+
+    # --- Сроки и напоминания ---
+
+    def patch_date(self, file_id, doc_date, **claims):
+        return self.client.patch(
+            f"/v1/documents/{file_id}", json={"doc_date": doc_date}, headers=self.auth(**claims)
+        )
+
+    def test_date_for_expiring_document(self) -> None:
+        file = self.upload(kind="signature_certificate", filename="certificate.cer", content=DER).json()
+        self.assertIsNone(file["due_date"])
+        future = (reminders.today() + timedelta(days=10)).isoformat()
+        response = self.patch_date(file["id"], future)
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual((body["doc_date"], body["due_date"], body["days_left"]), (future, future, 10))
+        # Порог 30 уже пройден при установке, поэтому сразу письма не будет.
+        self.assertEqual(self.store.documents[file["id"]].last_reminder, 30)
+
+        listed = self.client.get("/v1/documents", headers=self.auth()).json()["files"][0]
+        self.assertEqual(listed["days_left"], 10)
+
+        cleared = self.patch_date(file["id"], None).json()
+        self.assertEqual((cleared["doc_date"], cleared["days_left"]), (None, None))
+        self.assertIsNone(self.store.documents[file["id"]].last_reminder)
+
+    def test_issued_extract_counts_fresh_days(self) -> None:
+        file = self.upload().json()  # выписка ЕГРИП
+        issued = (reminders.today() - timedelta(days=10)).isoformat()
+        body = self.patch_date(file["id"], issued).json()
+        self.assertEqual(body["days_left"], 20)
+        self.assertEqual(body["due_date"], (reminders.today() + timedelta(days=20)).isoformat())
+
+    def test_overdue_is_negative(self) -> None:
+        file = self.upload().json()
+        body = self.patch_date(file["id"], (reminders.today() - timedelta(days=40)).isoformat()).json()
+        self.assertEqual(body["days_left"], -10)
+
+    def test_document_without_dates_rejects_date(self) -> None:
+        file = self.upload(kind="charter", business_type="ooo").json()
+        self.assertEqual(self.patch_date(file["id"], "2027-01-01", business_type="ooo").status_code, 422)
+
+    def test_date_validation_and_ownership(self) -> None:
+        file = self.upload().json()
+        self.assertEqual(self.patch_date(file["id"], "1999-12-31").status_code, 422)
+        self.assertEqual(self.patch_date(file["id"], "2101-01-01").status_code, 422)
+        self.assertEqual(self.patch_date(file["id"], "завтра").status_code, 422)
+        self.assertEqual(self.patch_date(file["id"], "2027-01-01", sub=OTHER_USER).status_code, 404)
+        self.assertEqual(self.patch_date("not-a-uuid", "2027-01-01").status_code, 404)
+        self.assertEqual(self.client.patch(f"/v1/documents/{file['id']}", json={"doc_date": "2027-01-01"}).status_code, 401)
+
+    def test_catalog_exposes_date_rules(self) -> None:
+        body = self.client.get("/v1/me", headers=self.auth()).json()
+        docs = {d["id"]: d for g in body["document_groups"] for d in g["documents"]}
+        self.assertEqual(docs["egrip_extract"]["date_kind"], "issued")
+        self.assertEqual(docs["egrip_extract"]["fresh_days"], 30)
+        self.assertEqual(docs["signature_certificate"]["date_kind"], "expires")
+        self.assertIsNone(docs["rosstat_codes"]["date_kind"])
+
+    def test_reminder_settings(self) -> None:
+        listing = self.client.get("/v1/documents", headers=self.auth()).json()["reminders"]
+        self.assertEqual((listing["email_reminders"], listing["email"]), (True, "owner@example.test"))
+        self.assertFalse(listing["available"])  # SMTP в тестах не настроен
+
+        off = self.client.put("/v1/reminders", json={"email_reminders": False}, headers=self.auth())
+        self.assertEqual(off.status_code, 200)
+        self.assertFalse(off.json()["email_reminders"])
+        # Следующий заход в кабинет настройку не сбрасывает.
+        again = self.client.get("/v1/documents", headers=self.auth()).json()["reminders"]
+        self.assertFalse(again["email_reminders"])
+        self.assertEqual(self.client.put("/v1/reminders", json={"email_reminders": True}).status_code, 401)
 
 
 if __name__ == "__main__":

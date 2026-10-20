@@ -10,7 +10,7 @@ import json
 import time
 import uuid
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from functools import lru_cache
 from typing import Any
 
@@ -20,7 +20,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from app.config import Settings
 from app.files import FileCipher, Sealed
-from app.store import NewDocument, QuotaExceeded, ShareLink, StoredDocument, Usage
+from app.store import Contact, NewDocument, QuotaExceeded, ShareLink, StoredDocument, Usage
 
 ISSUER = "https://fnskit.test/auth/realms/fnskit"
 JWKS_URL = "http://keycloak.test/auth/realms/fnskit/protocol/openid-connect/certs"
@@ -127,6 +127,7 @@ class MemoryStore:
         self.contents: dict[str, Sealed] = {}
         # token_hash -> (link, document_id)
         self.links: dict[bytes, tuple[ShareLink, str]] = {}
+        self.contacts: dict[str, Contact] = {}
 
     def _links_of(self, document_id: str) -> list[ShareLink]:
         now = datetime.now(UTC)
@@ -204,3 +205,34 @@ class MemoryStore:
 
     async def close(self) -> None:
         pass
+
+    async def set_doc_date(self, owner: str, document_id: str, doc_date: date | None, last_reminder: int | None):
+        document = self.documents.get(document_id)
+        if document is None or document.owner != owner:
+            return None
+        self.documents[document_id] = replace(document, doc_date=doc_date, last_reminder=last_reminder)
+        return self.documents[document_id]
+
+    async def touch_contact(self, owner: str, email: str | None) -> Contact:
+        previous = self.contacts.get(owner)
+        self.contacts[owner] = Contact(email, previous.email_reminders if previous else True)
+        return self.contacts[owner]
+
+    async def set_email_reminders(self, owner: str, email: str | None, enabled: bool) -> Contact:
+        self.contacts[owner] = Contact(email, enabled)
+        return self.contacts[owner]
+
+    async def reminder_candidates(self):
+        return [
+            (document, self.contacts[document.owner].email)
+            for document in self.documents.values()
+            if document.doc_date is not None
+            and document.owner in self.contacts
+            and self.contacts[document.owner].email_reminders
+            and self.contacts[document.owner].email
+        ]
+
+    async def mark_reminded(self, document_id: str, threshold: int | None) -> None:
+        document = self.documents.get(document_id)
+        if document is not None:
+            self.documents[document_id] = replace(document, last_reminder=threshold)

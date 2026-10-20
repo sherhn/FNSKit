@@ -9,7 +9,7 @@
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Protocol
 
 import asyncpg
@@ -40,6 +40,10 @@ class StoredDocument:
     sha256: str
     created_at: datetime
     links: list[ShareLink] = field(default_factory=list)
+    # Дата из документа (см. documents.DateKind) и последний порог, о котором
+    # уже напомнили письмом (reminders.THRESHOLDS).
+    doc_date: date | None = None
+    last_reminder: int | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +62,12 @@ class NewDocument:
 class Usage:
     count: int
     size_bytes: int
+
+
+@dataclass(frozen=True)
+class Contact:
+    email: str | None
+    email_reminders: bool
 
 
 class DocumentStore(Protocol):
@@ -84,6 +94,18 @@ class DocumentStore(Protocol):
     async def open_link(self, token_hash: bytes) -> tuple[StoredDocument, Sealed] | None: ...
 
     async def purge_expired_links(self) -> int: ...
+
+    async def set_doc_date(
+        self, owner: str, document_id: str, doc_date: date | None, last_reminder: int | None
+    ) -> StoredDocument | None: ...
+
+    async def touch_contact(self, owner: str, email: str | None) -> Contact: ...
+
+    async def set_email_reminders(self, owner: str, email: str | None, enabled: bool) -> Contact: ...
+
+    async def reminder_candidates(self) -> list[tuple[StoredDocument, str]]: ...
+
+    async def mark_reminded(self, document_id: str, threshold: int | None) -> None: ...
 
     async def close(self) -> None: ...
 
@@ -118,9 +140,24 @@ CREATE TABLE IF NOT EXISTS share_links (
     last_download_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS share_links_document_idx ON share_links (document_id);
+
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS doc_date date;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_reminder integer;
+
+-- Адрес для напоминаний. Обновляется при каждом заходе в кабинет, чтобы не
+-- писать на устаревший; у отключивших напоминания письма не уходят.
+CREATE TABLE IF NOT EXISTS reminder_contacts (
+    owner           text PRIMARY KEY,
+    email           text,
+    email_reminders boolean     NOT NULL DEFAULT true,
+    updated_at      timestamptz NOT NULL DEFAULT now()
+);
 """
 
-_DOCUMENT_COLUMNS = "d.id, d.owner, d.kind, d.filename, d.content_type, d.size_bytes, d.sha256, d.created_at"
+_DOCUMENT_COLUMNS = (
+    "d.id, d.owner, d.kind, d.filename, d.content_type, d.size_bytes, d.sha256, d.created_at, "
+    "d.doc_date, d.last_reminder"
+)
 
 
 def _document(row, links: list[ShareLink] | None = None) -> StoredDocument:
@@ -134,6 +171,8 @@ def _document(row, links: list[ShareLink] | None = None) -> StoredDocument:
         sha256=row["sha256"],
         created_at=row["created_at"],
         links=links or [],
+        doc_date=row["doc_date"],
+        last_reminder=row["last_reminder"],
     )
 
 
@@ -306,3 +345,64 @@ class PostgresStore:
         async with self._pool.acquire() as connection:
             result = await connection.execute("DELETE FROM share_links WHERE expires_at <= now()")
         return int(result.rsplit(" ", 1)[-1])
+
+    async def set_doc_date(
+        self, owner: str, document_id: str, doc_date: date | None, last_reminder: int | None
+    ) -> StoredDocument | None:
+        key = _uuid(document_id)
+        if key is None:
+            return None
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                """
+                UPDATE documents AS d SET doc_date = $3, last_reminder = $4
+                WHERE d.id = $1 AND d.owner = $2
+                RETURNING """ + _DOCUMENT_COLUMNS,
+                key, owner, doc_date, last_reminder,
+            )
+        return _document(row) if row else None
+
+    async def touch_contact(self, owner: str, email: str | None) -> Contact:
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                """
+                INSERT INTO reminder_contacts (owner, email) VALUES ($1, $2)
+                ON CONFLICT (owner) DO UPDATE SET email = EXCLUDED.email, updated_at = now()
+                RETURNING email, email_reminders
+                """,
+                owner, email,
+            )
+        return Contact(row["email"], row["email_reminders"])
+
+    async def set_email_reminders(self, owner: str, email: str | None, enabled: bool) -> Contact:
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                """
+                INSERT INTO reminder_contacts (owner, email, email_reminders) VALUES ($1, $2, $3)
+                ON CONFLICT (owner) DO UPDATE
+                    SET email = EXCLUDED.email, email_reminders = EXCLUDED.email_reminders, updated_at = now()
+                RETURNING email, email_reminders
+                """,
+                owner, email, enabled,
+            )
+        return Contact(row["email"], row["email_reminders"])
+
+    async def reminder_candidates(self) -> list[tuple[StoredDocument, str]]:
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(
+                f"""
+                SELECT {_DOCUMENT_COLUMNS}, c.email
+                FROM documents d JOIN reminder_contacts c ON c.owner = d.owner
+                WHERE d.doc_date IS NOT NULL AND c.email_reminders AND c.email IS NOT NULL
+                """
+            )
+        return [(_document(row), row["email"]) for row in rows]
+
+    async def mark_reminded(self, document_id: str, threshold: int | None) -> None:
+        key = _uuid(document_id)
+        if key is None:
+            return
+        async with self._pool.acquire() as connection:
+            await connection.execute(
+                "UPDATE documents SET last_reminder = $2 WHERE id = $1", key, threshold
+            )

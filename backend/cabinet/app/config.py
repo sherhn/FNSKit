@@ -57,6 +57,17 @@ class Settings(BaseSettings):
     # Файл целиком лежит в памяти, пока шифруется или расшифровывается, —
     # поэтому одновременных загрузок и скачиваний немного (см. mem_limit).
     max_concurrent_transfers: int = Field(default=2, ge=1, le=16)
+    # --- Напоминания о сроках документов по почте ---
+    reminders_enabled: bool = True
+    reminders_check_minutes: int = Field(default=60, ge=1)
+    # Тот же SMTP, что у Keycloak. Без хоста письма не отправляются, а
+    # переключатель в кабинете скрыт.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_from: str = "noreply@fnskit.sherhn.space"
+    smtp_starttls: bool = False
+    smtp_user: str = ""
+    smtp_password: SecretStr = SecretStr("")
     share_link_max_days: int = Field(default=30, ge=1, le=365)
     expired_links_sweep_minutes: int = Field(default=60, ge=1)
 

@@ -78,7 +78,7 @@ class MeEndpointTest(unittest.TestCase):
         self.assertIn("egrip_extract", ids)
         self.assertNotIn("charter", ids)
         first = body["document_groups"][0]["documents"][0]
-        self.assertEqual(set(first), {"id", "title", "purpose", "source", "level", "note"})
+        self.assertEqual(set(first), {"id", "title", "purpose", "source", "level", "note", "date_kind", "date_label", "fresh_days"})
 
     def test_document_set_for_ooo(self) -> None:
         response = self.get_me(self.key.sign(access_claims(business_type="ooo", company_name=None)))

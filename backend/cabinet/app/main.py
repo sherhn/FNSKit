@@ -3,7 +3,7 @@ import hashlib
 import logging
 import uuid
 from contextlib import asynccontextmanager, suppress
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Literal
 
 import httpx
@@ -13,7 +13,8 @@ from pydantic import BaseModel
 
 from app.auth import JwksCache, KeysUnavailable, Principal, TokenError, TokenVerifier
 from app.config import get_settings
-from app.documents import BUSINESS_TYPE_LABELS, documents_for
+from app.documents import BUSINESS_TYPE_LABELS, KINDS_BY_ID, DocumentKind, documents_for, due_date
+from app import reminders
 from app.files import (
     TOKEN_PATTERN,
     FileCipher,
@@ -48,6 +49,18 @@ async def purge_links_forever(store: DocumentStore) -> None:
         await asyncio.sleep(settings.expired_links_sweep_minutes * 60)
 
 
+async def send_reminders_forever(store: DocumentStore) -> None:
+    while True:
+        try:
+            sent = await reminders.run_once(store, settings)
+        except Exception:
+            logger.exception("Не удалось разослать напоминания.")
+        else:
+            if sent:
+                logger.info("Отправлено напоминаний: %s", sent)
+        await asyncio.sleep(settings.reminders_check_minutes * 60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Тесты подкладывают своё хранилище и шифр до старта; в работе их создаём
@@ -66,6 +79,9 @@ async def lifespan(app: FastAPI):
             settings.db_password.get_secret_value(),
         )
     sweeper = asyncio.create_task(purge_links_forever(app.state.store))
+    reminder_task = (
+        asyncio.create_task(send_reminders_forever(app.state.store)) if reminders_available() else None
+    )
     try:
         async with httpx.AsyncClient() as client:
             keys = JwksCache(
@@ -77,9 +93,11 @@ async def lifespan(app: FastAPI):
             app.state.verifier = TokenVerifier(settings, keys)
             yield
     finally:
-        sweeper.cancel()
-        with suppress(asyncio.CancelledError):
-            await sweeper
+        for task in (sweeper, reminder_task):
+            if task is not None:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
         if own_store:
             await app.state.store.close()
             app.state.store = None
@@ -149,6 +167,10 @@ class DocumentOut(BaseModel):
     source: str
     level: Literal["basic", "situational"]
     note: str | None
+    # Если у документа есть срок: что за дата и как считается.
+    date_kind: Literal["expires", "issued"] | None
+    date_label: str | None
+    fresh_days: int | None
 
 
 class DocumentGroupOut(BaseModel):
@@ -187,6 +209,9 @@ async def me(user: CurrentUser, response: Response) -> MeResponse:
                         source=kind.source,
                         level=kind.level.value,
                         note=kind.note,
+                        date_kind=kind.date_kind.value if kind.date_kind else None,
+                        date_label=kind.date_label,
+                        fresh_days=kind.fresh_days,
                     )
                     for kind in kinds
                 ],
@@ -238,6 +263,11 @@ class FileOut(BaseModel):
     content_type: str
     size_bytes: int
     created_at: datetime
+    doc_date: date | None
+    # Когда документ перестаёт быть действующим или свежим, и сколько дней
+    # осталось (отрицательное — уже просрочен). Пусто, если даты нет.
+    due_date: date | None
+    days_left: int | None
     # Только действующие ссылки. Сами адреса не хранятся и не показываются
     # повторно — в базе лежит лишь хеш токена.
     links: list[ShareLinkOut]
@@ -251,9 +281,25 @@ class UsageOut(BaseModel):
     max_file_bytes: int
 
 
+class RemindersOut(BaseModel):
+    # Настроен ли SMTP: без него переключатель в кабинете не показывается.
+    available: bool
+    email_reminders: bool
+    email: str | None
+
+
 class FilesResponse(BaseModel):
     files: list[FileOut]
     usage: UsageOut
+    reminders: RemindersOut
+
+
+class DatePatch(BaseModel):
+    doc_date: date | None
+
+
+class RemindersPatch(BaseModel):
+    email_reminders: bool
 
 
 class LinkRequest(BaseModel):
@@ -267,7 +313,12 @@ class CreatedLink(BaseModel):
 
 
 def file_out(document: StoredDocument) -> FileOut:
+    kind = KINDS_BY_ID.get(document.kind)
+    due = due_date(kind, document.doc_date) if kind else None
     return FileOut(
+        doc_date=document.doc_date,
+        due_date=due,
+        days_left=(due - reminders.today()).days if due else None,
         id=document.id,
         kind=document.kind,
         filename=document.filename,
@@ -336,6 +387,9 @@ def file_response(document: StoredDocument, content: bytes) -> Response:
 async def list_files(user: CurrentUser, store: Store, response: Response) -> FilesResponse:
     response.headers["Cache-Control"] = "no-store"
     documents = await store.list_documents(user.subject)
+    # Адрес для напоминаний обновляем при каждом заходе: сменили почту —
+    # письма пойдут на новую.
+    contact = await store.touch_contact(user.subject, user.email)
     return FilesResponse(
         files=[file_out(document) for document in documents],
         usage=UsageOut(
@@ -344,6 +398,11 @@ async def list_files(user: CurrentUser, store: Store, response: Response) -> Fil
             max_count=settings.max_documents_per_user,
             max_size_bytes=settings.max_storage_bytes_per_user,
             max_file_bytes=settings.max_document_bytes,
+        ),
+        reminders=RemindersOut(
+            available=reminders_available(),
+            email_reminders=contact.email_reminders,
+            email=contact.email,
         ),
     )
 
@@ -400,6 +459,51 @@ async def upload_file(
         except QuotaExceeded as error:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     return file_out(stored)
+
+
+def reminders_available() -> bool:
+    return settings.reminders_enabled and bool(settings.smtp_host)
+
+
+def kind_with_date(document: StoredDocument) -> DocumentKind:
+    kind = KINDS_BY_ID.get(document.kind)
+    if kind is None or kind.date_kind is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="У этого документа нет срока, который стоит отслеживать.",
+        )
+    return kind
+
+
+@app.patch("/v1/documents/{document_id}", response_model=FileOut)
+async def set_document_date(document_id: str, body: DatePatch, user: CurrentUser, store: Store) -> FileOut:
+    """Указать или убрать дату документа (срок действия или дату выписки)."""
+    found = await store.get_document(user.subject, document_id)
+    if found is None:
+        raise not_found()
+    kind = kind_with_date(found[0])
+    if body.doc_date is not None and not date(2000, 1, 1) <= body.doc_date <= date(2100, 12, 31):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Проверьте дату: год должен быть от 2000 до 2100."
+        )
+    # Порог, в который дата уже попала, считается пройденным: указали срок «на
+    # следующей неделе» — напоминание придёт при следующем пороге, а не сразу.
+    baseline = None
+    if body.doc_date is not None:
+        days_left = (due_date(kind, body.doc_date) - reminders.today()).days
+        baseline = reminders.threshold_for(days_left)
+    updated = await store.set_doc_date(user.subject, document_id, body.doc_date, baseline)
+    if updated is None:
+        raise not_found()
+    return file_out(updated)
+
+
+@app.put("/v1/reminders", response_model=RemindersOut)
+async def set_reminders(body: RemindersPatch, user: CurrentUser, store: Store) -> RemindersOut:
+    contact = await store.set_email_reminders(user.subject, user.email, body.email_reminders)
+    return RemindersOut(
+        available=reminders_available(), email_reminders=contact.email_reminders, email=contact.email
+    )
 
 
 @app.get("/v1/documents/{document_id}/content")
