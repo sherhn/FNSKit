@@ -310,6 +310,39 @@ def main() -> None:
         check(cabinet_me(forged_token).status == 401, "подменённый токен → 401")
         check(cabinet_me("").status == 401, "без токена → 401")
 
+        print("Файлы в кабинете")
+        api = urllib.request.build_opener()
+        bearer = {"Authorization": f"Bearer {tokens['access_token']}"}
+        pdf = b"%PDF-1.7\n" + secrets.token_bytes(4096)
+        query = urllib.parse.urlencode({"kind": "charter", "filename": "Устав ООО.pdf"})
+        uploaded = http_request(api, "POST", f"{SITE}/api/cabinet/v1/documents?{query}", pdf,
+                                {**bearer, "Content-Type": "application/octet-stream"})
+        check(uploaded.status == 201, "устав загружен через nginx", uploaded)
+        file_id = uploaded.json()["id"]
+        disguised = http_request(
+            api, "POST",
+            f"{SITE}/api/cabinet/v1/documents?" + urllib.parse.urlencode({"kind": "charter", "filename": "x.pdf"}),
+            b"<html></html>", {**bearer, "Content-Type": "application/octet-stream"})
+        check(disguised.status == 415, "HTML под видом PDF отклонён")
+        content = http_request(api, "GET", f"{SITE}/api/cabinet/v1/documents/{file_id}/content", headers=bearer)
+        check(content.status == 200 and content.headers["Content-Disposition"].startswith("attachment"),
+              "владелец скачивает файл")
+        raw = urllib.request.urlopen(urllib.request.Request(
+            f"{SITE}/api/cabinet/v1/documents/{file_id}/content", headers=bearer), timeout=30).read()
+        check(raw == pdf, "скачанный файл совпадает байт в байт")
+        link = http_request(api, "POST", f"{SITE}/api/cabinet/v1/documents/{file_id}/links",
+                            json.dumps({"days": 1}), {**bearer, "Content-Type": "application/json"}).json()
+        check(link["url"].startswith(f"{SITE}/s/"), "ссылка на файл создана")
+        shared = urllib.request.urlopen(link["url"], timeout=30).read()
+        check(shared == pdf, "по ссылке файл скачивается без входа")
+        revoked = http_request(api, "DELETE", f"{SITE}/api/cabinet/v1/links/{link['id']}", headers=bearer)
+        check(revoked.status == 204, "ссылка отозвана")
+        after = http_request(urllib.request.build_opener(_NoRedirect), "GET", link["url"])
+        check(after.status == 404 and "Ссылка больше не работает" in after.body,
+              "отозванная ссылка → страница «ссылка не работает»")
+        removed = http_request(api, "DELETE", f"{SITE}/api/cabinet/v1/documents/{file_id}", headers=bearer)
+        check(removed.status == 204, "файл удалён")
+
         print("Ротация refresh-токена")
         refreshed = http_request(urllib.request.build_opener(), "POST", f"{OIDC}/token", {
             "grant_type": "refresh_token", "client_id": CLIENT_ID,
