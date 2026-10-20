@@ -21,4 +21,7 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/live', timeout=3)"]
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
+# Журнал запросов uvicorn выключен: в пути /v1/shared/<токен> лежит ключ доступа
+# к файлу, а писать его в логи нельзя. Запросы и так видны в журнале nginx,
+# где этот путь маскируется.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1", "--no-access-log"]

@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -34,6 +34,31 @@ class Settings(BaseSettings):
     # мусорных токенов превратился бы в поток запросов к Keycloak.
     jwks_min_refresh_seconds: int = Field(default=30, ge=1)
     jwks_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+
+    # --- Хранение документов ---
+    # Своя база Postgres (cabinet-db), не база Keycloak. Параметры раздельно,
+    # а не DSN: пароль из base64 с «+», «/» и «=» сломал бы разбор URL.
+    db_host: str = "cabinet-db"
+    db_port: int = 5432
+    db_name: str = "cabinet"
+    db_user: str = "cabinet"
+    db_password: SecretStr = SecretStr("")
+    # Ключ шифрования файлов AES-256-GCM — base64 от 32 байт. Без него сервис
+    # не стартует. Потеря ключа = потеря всех файлов, хранить отдельно от базы
+    # и её резервных копий.
+    encryption_key: SecretStr = SecretStr("")
+    # Метка ключа пишется рядом с каждым файлом — задел на смену ключа.
+    encryption_key_id: str = "k1"
+    # Публичный адрес сайта: от него строятся ссылки для передачи файлов.
+    public_url: str = "http://localhost:8082"
+    max_document_bytes: int = Field(default=20 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
+    max_documents_per_user: int = Field(default=100, ge=1)
+    max_storage_bytes_per_user: int = Field(default=200 * 1024 * 1024, ge=1024)
+    # Файл целиком лежит в памяти, пока шифруется или расшифровывается, —
+    # поэтому одновременных загрузок и скачиваний немного (см. mem_limit).
+    max_concurrent_transfers: int = Field(default=2, ge=1, le=16)
+    share_link_max_days: int = Field(default=30, ge=1, le=365)
+    expired_links_sweep_minutes: int = Field(default=60, ge=1)
 
 
 @lru_cache

@@ -4,9 +4,13 @@
 httpx.MockTransport — настоящий Keycloak не нужен.
 """
 
+import base64
 import itertools
 import json
 import time
+import uuid
+from dataclasses import replace
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 
@@ -15,6 +19,8 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from app.config import Settings
+from app.files import FileCipher, Sealed
+from app.store import NewDocument, QuotaExceeded, ShareLink, StoredDocument, Usage
 
 ISSUER = "https://fnskit.test/auth/realms/fnskit"
 JWKS_URL = "http://keycloak.test/auth/realms/fnskit/protocol/openid-connect/certs"
@@ -102,3 +108,99 @@ class FakeKeycloak:
 
     def client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(transport=httpx.MockTransport(self.handler))
+
+
+# --- Хранилище и шифр для тестов API ------------------------------------------
+
+TEST_ENCRYPTION_KEY = base64.b64encode(bytes(range(32))).decode()
+
+
+def make_cipher() -> FileCipher:
+    return FileCipher(TEST_ENCRYPTION_KEY, "k1")
+
+
+class MemoryStore:
+    """То же поведение, что у PostgresStore: владельцы, квоты, сроки ссылок."""
+
+    def __init__(self) -> None:
+        self.documents: dict[str, StoredDocument] = {}
+        self.contents: dict[str, Sealed] = {}
+        # token_hash -> (link, document_id)
+        self.links: dict[bytes, tuple[ShareLink, str]] = {}
+
+    def _links_of(self, document_id: str) -> list[ShareLink]:
+        now = datetime.now(UTC)
+        return [link for link, doc_id in self.links.values() if doc_id == document_id and link.expires_at > now]
+
+    async def list_documents(self, owner: str) -> list[StoredDocument]:
+        return [
+            replace(document, links=self._links_of(document.id))
+            for document in sorted(self.documents.values(), key=lambda d: d.created_at)
+            if document.owner == owner
+        ]
+
+    async def usage(self, owner: str) -> Usage:
+        own = [d for d in self.documents.values() if d.owner == owner]
+        return Usage(len(own), sum(d.size_bytes for d in own))
+
+    async def add_document(self, document: NewDocument, max_count: int, max_bytes: int) -> StoredDocument:
+        usage = await self.usage(document.owner)
+        if usage.count >= max_count:
+            raise QuotaExceeded(f"В кабинете уже {max_count} файлов — удалите ненужные, чтобы загрузить новый.")
+        if usage.size_bytes + document.size_bytes > max_bytes:
+            raise QuotaExceeded("Место в кабинете закончилось — удалите ненужные файлы.")
+        stored = StoredDocument(
+            id=document.id, owner=document.owner, kind=document.kind, filename=document.filename,
+            content_type=document.content_type, size_bytes=document.size_bytes,
+            sha256=document.sha256, created_at=datetime.now(UTC),
+        )
+        self.documents[document.id] = stored
+        self.contents[document.id] = document.sealed
+        return stored
+
+    async def get_document(self, owner: str, document_id: str):
+        document = self.documents.get(document_id)
+        if document is None or document.owner != owner:
+            return None
+        return document, self.contents[document_id]
+
+    async def delete_document(self, owner: str, document_id: str) -> bool:
+        document = self.documents.get(document_id)
+        if document is None or document.owner != owner:
+            return False
+        del self.documents[document_id], self.contents[document_id]
+        self.links = {h: v for h, v in self.links.items() if v[1] != document_id}
+        return True
+
+    async def create_link(self, owner: str, document_id: str, token_hash: bytes, expires_at: datetime):
+        document = self.documents.get(document_id)
+        if document is None or document.owner != owner:
+            return None
+        link = ShareLink(str(uuid.uuid4()), expires_at, datetime.now(UTC), 0)
+        self.links[token_hash] = (link, document_id)
+        return link
+
+    async def delete_link(self, owner: str, link_id: str) -> bool:
+        for key, (link, document_id) in list(self.links.items()):
+            if link.id == link_id and self.documents[document_id].owner == owner:
+                del self.links[key]
+                return True
+        return False
+
+    async def open_link(self, token_hash: bytes):
+        entry = self.links.get(token_hash)
+        if entry is None or entry[0].expires_at <= datetime.now(UTC):
+            return None
+        link, document_id = entry
+        self.links[token_hash] = (replace(link, download_count=link.download_count + 1), document_id)
+        return self.documents[document_id], self.contents[document_id]
+
+    async def purge_expired_links(self) -> int:
+        now = datetime.now(UTC)
+        expired = [h for h, (link, _) in self.links.items() if link.expires_at <= now]
+        for key in expired:
+            del self.links[key]
+        return len(expired)
+
+    async def close(self) -> None:
+        pass

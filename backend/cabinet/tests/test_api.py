@@ -5,13 +5,25 @@ from fastapi.testclient import TestClient
 
 from app.auth import JwksCache, TokenVerifier
 from app.main import app
-from support import JWKS_URL, FakeKeycloak, SigningKey, access_claims, make_settings
+from support import (
+    JWKS_URL,
+    FakeKeycloak,
+    MemoryStore,
+    SigningKey,
+    access_claims,
+    make_cipher,
+    make_settings,
+)
 
 
 class MeEndpointTest(unittest.TestCase):
     def setUp(self) -> None:
         self.key = SigningKey("key-1")
         self.keycloak = FakeKeycloak(self.key)
+        # Базу и ключ шифрования подменяем до старта приложения, иначе оно
+        # пойдёт подключаться к настоящему Postgres.
+        app.state.store = MemoryStore()
+        app.state.cipher = make_cipher()
         self.client = TestClient(app)
         self.client.__enter__()
         self.addCleanup(self.client.__exit__, None, None, None)
