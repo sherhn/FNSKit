@@ -318,12 +318,41 @@
     $("retryButton").addEventListener("click", () => location.reload());
   }
 
+  // Keycloak возвращает только на адреса, зарегистрированные в realm, а они
+  // построены от публичного адреса сайта (FNSKIT_SITE_URL). Открой сайт под
+  // другим именем — 127.0.0.1 вместо localhost, второй домен — и вход
+  // получил бы 400. Публичный адрес знает сам Keycloak: это origin издателя.
+  async function canonicalOrigin() {
+    const response = await fetch(`${AUTH_URL}/realms/${REALM}/.well-known/openid-configuration`, {
+      credentials: "omit",
+      cache: "no-store"
+    });
+    if (!response.ok) throw new Error(`discovery: ${response.status}`);
+    const { issuer } = await response.json();
+    return new URL(issuer).origin;
+  }
+
+  // keycloak-js ждёт ответа скрытого фрейма без ограничения по времени. Если
+  // Keycloak вместо возврата на сайт покажет во фрейме ошибку, страница
+  // навсегда осталась бы на «Проверяем вход…».
+  function withTimeout(promise, ms) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))
+    ]);
+  }
+
   async function start() {
     let Keycloak;
+    let origin;
     try {
-      ({ default: Keycloak } = await import(KEYCLOAK_MODULE));
+      [{ default: Keycloak }, origin] = await Promise.all([import(KEYCLOAK_MODULE), canonicalOrigin()]);
     } catch {
-      showError("Не удалось загрузить модуль входа. Обновите страницу.");
+      showError();
+      return;
+    }
+    if (origin !== location.origin) {
+      location.replace(`${origin}${location.pathname}${location.search}`);
       return;
     }
 
@@ -337,7 +366,7 @@
 
     let authenticated = false;
     try {
-      authenticated = await keycloak.init({
+      authenticated = await withTimeout(keycloak.init({
         onLoad: "check-sso",
         silentCheckSsoRedirectUri: `${location.origin}/silent-check-sso`,
         redirectUri: RETURN_URL,
@@ -345,7 +374,7 @@
         // Опрос сессии через iframe раз в 5 секунд не нужен: токен и так
         // обновляется перед каждым запросом.
         checkLoginIframe: false
-      });
+      }), 15000);
     } catch {
       showError();
       return;
