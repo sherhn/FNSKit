@@ -13,7 +13,7 @@
   const KEYCLOAK_MODULE = "/vendor/keycloak-js-26.2.4.mjs";
   const CABINET_API = "/api/cabinet";
   const ACCOUNT_API = `${AUTH_URL}/realms/${REALM}/account`;
-  const RETURN_URL = `${location.origin}/kabinet`;
+  const RETURN_URL = `${location.origin}/account`;
 
   const $ = (id) => document.getElementById(id);
   const STATES = ["stateLoading", "stateGuest", "stateUser", "stateError"];

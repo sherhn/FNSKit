@@ -40,7 +40,7 @@ MAILPIT = os.environ.get("MAILPIT_URL", "http://localhost:8025").rstrip("/")
 REALM = f"{SITE}/auth/realms/fnskit"
 OIDC = f"{REALM}/protocol/openid-connect"
 CLIENT_ID = "fnskit-web"
-RETURN_URL = f"{SITE}/kabinet"
+RETURN_URL = f"{SITE}/account"
 
 passed = 0
 
@@ -290,7 +290,7 @@ def main() -> None:
               "неверный пароль не пускает")
         result = browser.go("POST", form_action(result, "kc-form-login"),
                             {"username": email, "password": password})
-        check(isinstance(result, str), "верный пароль возвращает на /kabinet с кодом")
+        check(isinstance(result, str), "верный пароль возвращает на /account с кодом")
         tokens = login.exchange(result)
         access = claims(tokens["access_token"])
         check("fnskit-cabinet" in access["aud"] and access["azp"] == CLIENT_ID,
