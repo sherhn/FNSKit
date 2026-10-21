@@ -45,6 +45,7 @@
   ],
   "defaultLocale": "ru",
   "loginTheme": "fnskit",
+  "emailTheme": "fnskit",
   "eventsEnabled": true,
   "eventsExpiration": 2592000,
   "adminEventsEnabled": false,

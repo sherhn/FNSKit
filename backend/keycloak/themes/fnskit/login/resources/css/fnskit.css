@@ -386,3 +386,19 @@ div:has(> .pf-v5-c-check__input) > label {
     animation: none !important;
   }
 }
+
+/* У полей пароля свой «глазок» (кнопка в группе). Родной значок показа пароля
+   Edge, Chrome и Safari скрываем, иначе у поля их два. */
+input::-ms-reveal,
+input::-ms-clear {
+  display: none;
+}
+
+input[type="password"]::-webkit-credentials-auto-fill-button,
+input[type="password"]::-webkit-textfield-decoration-container {
+  visibility: hidden;
+  display: none !important;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+}
