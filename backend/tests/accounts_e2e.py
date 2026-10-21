@@ -333,8 +333,25 @@ def main() -> None:
         link = http_request(api, "POST", f"{SITE}/api/cabinet/v1/documents/{file_id}/links",
                             json.dumps({"days": 1}), {**bearer, "Content-Type": "application/json"}).json()
         check(link["url"].startswith(f"{SITE}/s/"), "ссылка на файл создана")
-        shared = urllib.request.urlopen(link["url"], timeout=30).read()
-        check(shared == pdf, "по ссылке файл скачивается без входа")
+        landing = http_request(urllib.request.build_opener(_NoRedirect), "GET", link["url"])
+        check(landing.status == 200 and "Скачать файл" in landing.body and "Устав ООО.pdf" in landing.body
+              and "%PDF" not in landing.body, "ссылка открывает страницу «Скачать», а не сам файл")
+        shared = urllib.request.urlopen(urllib.request.Request(link["url"], data=b"", method="POST"),
+                                        timeout=30).read()
+        check(shared == pdf, "кнопка «Скачать» отдаёт файл без входа, байт в байт")
+
+        limited = http_request(api, "POST", f"{SITE}/api/cabinet/v1/documents/{file_id}/links",
+                               json.dumps({"days": 1, "max_downloads": 1}),
+                               {**bearer, "Content-Type": "application/json"}).json()
+        check(limited["max_downloads"] == 1, "ссылка на одно скачивание создана")
+        for _ in range(3):
+            urllib.request.urlopen(limited["url"], timeout=30).read()
+        first = urllib.request.urlopen(urllib.request.Request(limited["url"], data=b"", method="POST"),
+                                       timeout=30).read()
+        check(first == pdf, "превью-запросы лимит не тратят, первое скачивание проходит")
+        second = http_request(urllib.request.build_opener(_NoRedirect), "POST", limited["url"], b"")
+        check(second.status == 404 and "Ссылка больше не работает" in second.body,
+              "второе скачивание — страница «ссылка не работает»", second)
         revoked = http_request(api, "DELETE", f"{SITE}/api/cabinet/v1/links/{link['id']}", headers=bearer)
         check(revoked.status == 204, "ссылка отозвана")
         after = http_request(urllib.request.build_opener(_NoRedirect), "GET", link["url"])
