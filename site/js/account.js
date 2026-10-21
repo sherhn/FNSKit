@@ -223,9 +223,16 @@
 
   // --- Ссылки на файл --------------------------------------------------------
 
+  // Описание условий ссылки: «до 27 октября · скачано 1 из 3».
+  function linkTerms(link) {
+    const until = `до ${dayMonth.format(new Date(link.expires_at))}`;
+    if (link.max_downloads) return `${until} · скачано ${link.download_count} из ${link.max_downloads}`;
+    return link.download_count ? `${until} · скачиваний: ${link.download_count}` : `${until} · ещё не скачивали`;
+  }
+
   function createdLinkBlock(link) {
-    const block = element("div", "mt-4");
-    const field = element("input", "field field-sm");
+    const block = element("div", "mt-5");
+    const field = element("input", "field field-sm min-w-0 flex-1");
     field.readOnly = true;
     field.value = link.url;
     field.setAttribute("aria-label", "Ссылка на файл");
@@ -239,17 +246,41 @@
       }
     });
     const row = element("div", "flex flex-col gap-2 sm:flex-row sm:items-center");
-    field.className = "field field-sm min-w-0 flex-1";
     row.append(field, copy);
+    // «не больше 1 скачивания», «не больше 3 скачиваний».
+    const limit = link.max_downloads
+      ? `, но не больше ${link.max_downloads} ${link.max_downloads % 10 === 1 && link.max_downloads % 100 !== 11 ? "скачивания" : "скачиваний"}`
+      : "";
     block.append(
       row,
       element(
         "p",
         "mt-2 text-xs font-semibold leading-relaxed text-ink/60",
-        `Действует до ${dayMonth.format(new Date(link.expires_at))}. Сохраните её сейчас: показать ещё раз нельзя, только создать новую.`
+        `Действует до ${dayMonth.format(new Date(link.expires_at))}${limit}. Сохраните её сейчас: показать ещё раз нельзя, только создать новую.`
       )
     );
     return block;
+  }
+
+  // Подписанный выбор из нескольких вариантов («таблетки» на радио-кнопках).
+  function choiceRow(name, caption, options, selected) {
+    const row = element("div", "mt-3 flex flex-wrap items-center gap-x-3 gap-y-2");
+    row.append(element("span", "w-24 shrink-0 text-xs font-extrabold text-ink/55", caption));
+    const group = element("div", "segmented");
+    group.setAttribute("role", "radiogroup");
+    group.setAttribute("aria-label", caption);
+    for (const [value, label] of options) {
+      const option = element("label");
+      const input = element("input");
+      input.type = "radio";
+      input.name = name;
+      input.value = value;
+      input.checked = value === selected;
+      option.append(input, element("span", "", label));
+      group.append(option);
+    }
+    row.append(group);
+    return { row, value: () => (group.querySelector("input:checked") || { value: selected }).value };
   }
 
   function sharePanel(file) {
@@ -257,32 +288,26 @@
     panel.append(element(
       "p",
       "text-xs font-semibold leading-relaxed text-ink/70",
-      "Любой, у кого есть ссылка, сможет скачать файл без входа, пока она действует. Отозвать её можно в любой момент."
+      "Любой, у кого есть ссылка, сможет скачать файл без входа. Она перестаёт работать, когда выйдет срок или закончатся скачивания — что наступит раньше. Отозвать её можно в любой момент."
     ));
 
-    const row = element("div", "mt-4 flex flex-wrap items-center gap-2");
-    const days = element("div", "segmented");
-    days.setAttribute("role", "radiogroup");
-    days.setAttribute("aria-label", "Срок действия ссылки");
-    const groupName = `days-${file.id}`;
-    for (const [value, label] of [["1", "1 день"], ["7", "7 дней"], ["30", "30 дней"]]) {
-      const option = element("label");
-      const input = element("input");
-      input.type = "radio";
-      input.name = groupName;
-      input.value = value;
-      input.checked = value === "7";
-      option.append(input, element("span", "", label));
-      days.append(option);
-    }
-    const chosenDays = () => Number((days.querySelector("input:checked") || { value: "7" }).value);
-    const create = button("Создать ссылку", BTN_PRIMARY, async () => {
+    const days = choiceRow(`days-${file.id}`, "Срок", [["1", "1 день"], ["7", "7 дней"], ["30", "30 дней"]], "7");
+    const limit = choiceRow(
+      `limit-${file.id}`,
+      "Скачиваний",
+      [["", "Без лимита"], ["1", "1"], ["3", "3"], ["10", "10"]],
+      ""
+    );
+    const create = button("Создать ссылку", `${BTN_PRIMARY} mt-4`, async () => {
       create.disabled = true;
       try {
         const response = await authorizedFetch(`${CABINET_API}/v1/documents/${file.id}/links`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ days: chosenDays() })
+          body: JSON.stringify({
+            days: Number(days.value()),
+            max_downloads: limit.value() ? Number(limit.value()) : null
+          })
         });
         if (!response.ok) throw await failure(response, "Не удалось создать ссылку.");
         createdLink = { fileId: file.id, link: await response.json() };
@@ -292,16 +317,14 @@
         reportFileError(error, "Не удалось создать ссылку.");
       }
     });
-    row.append(days, create);
-    panel.append(row);
+    panel.append(days.row, limit.row, create);
     if (createdLink && createdLink.fileId === file.id) panel.append(createdLinkBlock(createdLink.link));
 
     if (file.links.length) {
-      const list = element("ul", "mt-4 space-y-2");
+      const list = element("ul", "mt-5 space-y-2");
       for (const link of file.links) {
         const item = element("li", "flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/70 py-1.5 pl-4 pr-1.5 text-xs font-semibold");
-        const downloads = link.download_count ? ` · скачиваний: ${link.download_count}` : " · ещё не скачивали";
-        item.append(element("span", "", `Ссылка до ${dayMonth.format(new Date(link.expires_at))}${downloads}`));
+        item.append(element("span", "", `Ссылка ${linkTerms(link)}`));
         item.append(button("Отозвать", BTN_DANGER, async () => {
           try {
             const response = await authorizedFetch(`${CABINET_API}/v1/links/${link.id}`, { method: "DELETE" });
