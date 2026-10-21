@@ -13,6 +13,14 @@ TODAY = date(2026, 10, 20)
 OWNER = "owner-1"
 
 
+def text_of(message) -> str:
+    return message.get_body(preferencelist=("plain",)).get_content()
+
+
+def html_of(message) -> str:
+    return message.get_body(preferencelist=("html",)).get_content()
+
+
 class ThresholdTest(unittest.TestCase):
     def test_threshold_for(self) -> None:
         cases = {45: None, 31: None, 30: 30, 15: 30, 8: 30, 7: 7, 2: 7, 1: 1, 0: 0, -5: 0}
@@ -94,17 +102,58 @@ class RunOnceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(message["To"], "owner@example.test")
         self.assertIn("Сертификат электронной подписи", message["Subject"])
         self.assertIn("7 дней", message["Subject"])
-        body = message.get_content()
+        body = text_of(message)
         self.assertIn("27 октября 2026", body)
         self.assertIn("/account", body)
         self.assertIn("сертификат.cer", body)
+
+    async def test_html_version_matches_site_style(self) -> None:
+        await self.store.touch_contact(OWNER, "owner@example.test")
+        await self.add("signature_certificate", TODAY + timedelta(days=7))
+        await self.run_once()
+        message = self.sent[0]
+        self.assertTrue(message.is_multipart())
+        html = html_of(message)
+        self.assertIn("Срок документа заканчивается", html)
+        self.assertIn("Сертификат электронной подписи", html)
+        self.assertIn("сертификат.cer", html)
+        self.assertIn("осталось 7 дней", html)
+        self.assertIn("http://localhost:8082/account", html)
+        self.assertIn("/images/apple-touch-icon.png", html)
+        # Цвета и «таблетки» сайта: лаймовая полоса, чернильная кнопка, бумажный фон.
+        for token in ("#C8FF32", "#171815", "#F5F4EF", "border-radius:999px"):
+            self.assertIn(token, html)
+        self.assertIn("#FFDFA8", html)  # срочно: до 7 дней
+
+    async def test_html_tone_follows_urgency(self) -> None:
+        await self.store.touch_contact(OWNER, "owner@example.test")
+        await self.add("signature_certificate", TODAY + timedelta(days=30))
+        await self.add("power_of_attorney", TODAY - timedelta(days=1))
+        await self.run_once()
+        soon = next(m for m in self.sent if "Сертификат" in m["Subject"])
+        expired = next(m for m in self.sent if "Доверенности" in m["Subject"])
+        self.assertIn("#E9F9B8", html_of(soon))
+        self.assertIn("#FEE2E2", html_of(expired))
+        self.assertIn("Срок документа закончился", html_of(expired))
+
+    async def test_html_escapes_values(self) -> None:
+        await self.store.touch_contact(OWNER, "owner@example.test")
+        document_id = await self.add("signature_certificate", TODAY + timedelta(days=3))
+        stored = self.store.documents[document_id]
+        self.store.documents[document_id] = stored.__class__(
+            **{**stored.__dict__, "filename": 'a&b"<script>.cer'}
+        )
+        await self.run_once()
+        html = html_of(self.sent[0])
+        self.assertNotIn("<script>", html)
+        self.assertIn("a&amp;b&quot;&lt;script&gt;.cer", html)
 
     async def test_issued_extract_goes_stale(self) -> None:
         await self.store.touch_contact(OWNER, "owner@example.test")
         await self.add("egrip_extract", TODAY - timedelta(days=25))  # устареет через 5 дней
         self.assertEqual(await self.run_once(), 1)
         self.assertIn("5 дней", self.sent[0]["Subject"])
-        self.assertIn("свежей", self.sent[0].get_content())
+        self.assertIn("свежей", text_of(self.sent[0]))
 
     async def test_expired_message(self) -> None:
         await self.store.touch_contact(OWNER, "owner@example.test")

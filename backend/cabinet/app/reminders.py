@@ -17,6 +17,7 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta, timezone
 from email.message import EmailMessage
 
+from app import email_layout
 from app.config import Settings
 from app.documents import KINDS_BY_ID, DateKind, due_date
 from app.store import DocumentStore, StoredDocument
@@ -90,17 +91,46 @@ def build_message(settings: Settings, to: str, document: StoredDocument, days_le
             f"{long_date(due)} — через {left}. Продлите или замените его заранее."
         )
 
+    site = settings.public_url.rstrip("/")
     message = EmailMessage()
     message["Subject"] = subject
     message["From"] = f"ФНСКит <{settings.smtp_from}>"
     message["To"] = to
     message.set_content(
         f"{lead}\n\n"
-        f"Документы и сроки: {settings.public_url.rstrip('/')}/account\n\n"
+        f"Документы и сроки: {site}/account\n\n"
         "Вы получили это письмо, потому что в кабинете ФНСКит указан срок документа. "
         "Отключить напоминания можно на вкладке «Аккаунт» в кабинете.\n"
         "ФНСКит не является официальным сервисом ФНС и не заменяет консультацию бухгалтера или юриста.\n"
     )
+
+    # HTML-версия в стиле сайта; текстовая выше остаётся для клиентов без HTML.
+    if days_left <= 0:
+        heading = "Выписка устарела" if issued else "Срок документа закончился"
+        tone = "expired"
+    else:
+        heading = "Выписка скоро устареет" if issued else "Срок документа заканчивается"
+        tone = "urgent" if days_left <= 7 else "soon"
+    status = (
+        f"Устарела {long_date(due)}" if issued and days_left <= 0
+        else f"Закончился {long_date(due)}" if days_left <= 0
+        else f"{'Свежая до' if issued else 'Действует до'} {long_date(due)} — осталось {plural_days(days_left)}"
+    )
+    inner = (
+        email_layout.status_box(title, [document.filename, status], tone)
+        + email_layout.paragraph(
+            "Закажите новую выписку заранее, если она понадобится банку или ФНС."
+            if issued
+            else "Продлите или замените документ заранее, чтобы не остановить работу с банком или ФНС."
+        )
+        + email_layout.button(f"{site}/account", "Открыть кабинет")
+        + email_layout.paragraph(
+            "Вы получили это письмо, потому что в кабинете указан срок документа. "
+            "Напоминания можно отключить на вкладке «Аккаунт».",
+            muted=True,
+        )
+    )
+    message.add_alternative(email_layout.render(heading, inner, site), subtype="html")
     return message
 
 
