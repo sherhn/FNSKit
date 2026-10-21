@@ -15,6 +15,7 @@ from app.auth import JwksCache, KeysUnavailable, Principal, TokenError, TokenVer
 from app.config import get_settings
 from app.documents import BUSINESS_TYPE_LABELS, KINDS_BY_ID, DocumentKind, documents_for, due_date
 from app import reminders
+from app.share_page import render_landing
 from app.files import (
     TOKEN_PATTERN,
     FileCipher,
@@ -31,6 +32,8 @@ from app.store import DocumentStore, NewDocument, PostgresStore, QuotaExceeded, 
 
 settings = get_settings()
 logger = logging.getLogger("fnskit.cabinet")
+
+MAX_LINK_DOWNLOADS = 100
 
 # Файл целиком в памяти, пока шифруется или расшифровывается: число
 # одновременных передач держит потолок памяти контейнера.
@@ -254,6 +257,7 @@ class ShareLinkOut(BaseModel):
     expires_at: datetime
     created_at: datetime
     download_count: int
+    max_downloads: int | None
 
 
 class FileOut(BaseModel):
@@ -304,12 +308,16 @@ class RemindersPatch(BaseModel):
 
 class LinkRequest(BaseModel):
     days: int = 7
+    # Сколько раз ссылкой можно скачать файл; пусто — без ограничения. Ссылка
+    # перестаёт работать по тому, что наступит раньше: срок или лимит.
+    max_downloads: int | None = None
 
 
 class CreatedLink(BaseModel):
     id: str
     url: str
     expires_at: datetime
+    max_downloads: int | None
 
 
 def file_out(document: StoredDocument) -> FileOut:
@@ -331,6 +339,7 @@ def file_out(document: StoredDocument) -> FileOut:
                 expires_at=link.expires_at,
                 created_at=link.created_at,
                 download_count=link.download_count,
+                max_downloads=link.max_downloads,
             )
             for link in document.links
         ],
@@ -537,12 +546,18 @@ async def create_share_link(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Срок ссылки — от 1 до {settings.share_link_max_days} дней.",
         )
+    if body.max_downloads is not None and not 1 <= body.max_downloads <= MAX_LINK_DOWNLOADS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Число скачиваний — от 1 до {MAX_LINK_DOWNLOADS}.",
+        )
     token = new_link_token()
     link = await store.create_link(
         user.subject,
         document_id,
         token_hash(token),
         datetime.now(UTC) + timedelta(days=body.days),
+        body.max_downloads,
     )
     if link is None:
         raise not_found()
@@ -552,6 +567,7 @@ async def create_share_link(
         id=link.id,
         url=f"{settings.public_url.rstrip('/')}/s/{token}",
         expires_at=link.expires_at,
+        max_downloads=link.max_downloads,
     )
 
 
@@ -562,19 +578,44 @@ async def revoke_share_link(link_id: str, user: CurrentUser, store: Store) -> Re
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@app.get("/v1/shared/{token}")
-async def download_shared(token: str, store: Store, cipher: Cipher) -> Response:
-    """Скачивание по ссылке — без входа: доступ даёт сам токен."""
-    expired = HTTPException(
+def link_expired() -> HTTPException:
+    return HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
-        detail="Ссылка недействительна или срок её действия истёк.",
+        detail="Ссылка недействительна, её срок истёк или скачивания закончились.",
     )
+
+
+@app.get("/v1/shared/{token}", response_class=Response)
+async def shared_page(token: str, store: Store) -> Response:
+    """Страница «Скачать» для получателя. Открытие страницы скачивание не
+    списывает: так лимит не тратят роботы, разворачивающие ссылки."""
     if not TOKEN_PATTERN.match(token):
-        raise expired
+        raise link_expired()
+    found = await store.peek_link(token_hash(token))
+    if found is None:
+        raise link_expired()
+    document, link = found
+    return Response(
+        content=render_landing(document, link),
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Cache-Control": "no-store",
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@app.post("/v1/shared/{token}")
+async def download_shared(token: str, store: Store, cipher: Cipher) -> Response:
+    """Скачивание по ссылке — без входа: доступ даёт сам токен. Каждый успешный
+    запрос списывает одно скачивание."""
+    if not TOKEN_PATTERN.match(token):
+        raise link_expired()
     async with transfer_slots:
         found = await store.open_link(token_hash(token))
         if found is None:
-            raise expired
+            raise link_expired()
         document, sealed = found
         content = decrypt(cipher, document, sealed)
     return file_response(document, content)

@@ -129,9 +129,13 @@ class MemoryStore:
         self.links: dict[bytes, tuple[ShareLink, str]] = {}
         self.contacts: dict[str, Contact] = {}
 
+    @staticmethod
+    def _active(link: ShareLink, now: datetime) -> bool:
+        return link.expires_at > now and (link.max_downloads is None or link.download_count < link.max_downloads)
+
     def _links_of(self, document_id: str) -> list[ShareLink]:
         now = datetime.now(UTC)
-        return [link for link, doc_id in self.links.values() if doc_id == document_id and link.expires_at > now]
+        return [link for link, doc_id in self.links.values() if doc_id == document_id and self._active(link, now)]
 
     async def list_documents(self, owner: str) -> list[StoredDocument]:
         return [
@@ -173,11 +177,12 @@ class MemoryStore:
         self.links = {h: v for h, v in self.links.items() if v[1] != document_id}
         return True
 
-    async def create_link(self, owner: str, document_id: str, token_hash: bytes, expires_at: datetime):
+    async def create_link(self, owner: str, document_id: str, token_hash: bytes, expires_at: datetime,
+                          max_downloads: int | None = None):
         document = self.documents.get(document_id)
         if document is None or document.owner != owner:
             return None
-        link = ShareLink(str(uuid.uuid4()), expires_at, datetime.now(UTC), 0)
+        link = ShareLink(str(uuid.uuid4()), expires_at, datetime.now(UTC), 0, max_downloads)
         self.links[token_hash] = (link, document_id)
         return link
 
@@ -188,9 +193,15 @@ class MemoryStore:
                 return True
         return False
 
+    async def peek_link(self, token_hash: bytes):
+        entry = self.links.get(token_hash)
+        if entry is None or not self._active(entry[0], datetime.now(UTC)):
+            return None
+        return self.documents[entry[1]], entry[0]
+
     async def open_link(self, token_hash: bytes):
         entry = self.links.get(token_hash)
-        if entry is None or entry[0].expires_at <= datetime.now(UTC):
+        if entry is None or not self._active(entry[0], datetime.now(UTC)):
             return None
         link, document_id = entry
         self.links[token_hash] = (replace(link, download_count=link.download_count + 1), document_id)
@@ -198,7 +209,7 @@ class MemoryStore:
 
     async def purge_expired_links(self) -> int:
         now = datetime.now(UTC)
-        expired = [h for h, (link, _) in self.links.items() if link.expires_at <= now]
+        expired = [h for h, (link, _) in self.links.items() if not self._active(link, now)]
         for key in expired:
             del self.links[key]
         return len(expired)

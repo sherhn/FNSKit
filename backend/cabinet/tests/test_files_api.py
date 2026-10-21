@@ -146,18 +146,37 @@ class FilesApiTest(unittest.TestCase):
 
     # --- Ссылки ---
 
+    def make_link(self, file_id: str, **body) -> dict:
+        response = self.client.post(
+            f"/v1/documents/{file_id}/links", json={"days": 7, **body}, headers=self.auth()
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        link = response.json()
+        link["token"] = link["url"].rsplit("/", 1)[-1]
+        return link
+
     def test_share_link_lifecycle(self) -> None:
         file = self.upload().json()
-        created = self.client.post(f"/v1/documents/{file['id']}/links", json={"days": 7}, headers=self.auth())
-        self.assertEqual(created.status_code, 201, created.text)
-        link = created.json()
+        link = self.make_link(file["id"])
         self.assertTrue(link["url"].startswith(f"{main.settings.public_url}/s/"))
-        token = link["url"].rsplit("/", 1)[-1]
+        self.assertIsNone(link["max_downloads"])
+        token = link["token"]
 
         # Токен в хранилище не лежит — только его хеш.
         self.assertFalse(any(token.encode() in key for key in self.store.links))
 
-        shared = self.client.get(f"/v1/shared/{token}")
+        # Адрес ссылки открывает страницу «Скачать» и ничего не списывает.
+        page = self.client.get(f"/v1/shared/{token}")
+        self.assertEqual(page.status_code, 200)
+        self.assertTrue(page.headers["content-type"].startswith("text/html"))
+        self.assertIn("Выписка ЕГРИП.pdf", page.text)
+        self.assertIn('method="post"', page.text)
+        self.assertEqual(page.headers["referrer-policy"], "no-referrer")
+        self.assertNotIn(token, page.text)
+        listed = self.client.get("/v1/documents", headers=self.auth()).json()["files"][0]["links"]
+        self.assertEqual(listed[0]["download_count"], 0)
+
+        shared = self.client.post(f"/v1/shared/{token}")
         self.assertEqual(shared.status_code, 200)
         self.assertEqual(shared.content, PDF)
         self.assertTrue(shared.headers["content-disposition"].startswith("attachment;"))
@@ -169,6 +188,53 @@ class FilesApiTest(unittest.TestCase):
         revoked = self.client.delete(f"/v1/links/{link['id']}", headers=self.auth())
         self.assertEqual(revoked.status_code, 204)
         self.assertEqual(self.client.get(f"/v1/shared/{token}").status_code, 404)
+        self.assertEqual(self.client.post(f"/v1/shared/{token}").status_code, 404)
+
+    def test_download_limit(self) -> None:
+        file = self.upload().json()
+        link = self.make_link(file["id"], max_downloads=2)
+        self.assertEqual(link["max_downloads"], 2)
+        token = link["token"]
+
+        page = self.client.get(f"/v1/shared/{token}")
+        self.assertIn("Осталось 2 скачивания", page.text)
+        # Роботы-превью открывают страницу сколько угодно раз — лимит цел.
+        for _ in range(5):
+            self.assertEqual(self.client.get(f"/v1/shared/{token}").status_code, 200)
+
+        self.assertEqual(self.client.post(f"/v1/shared/{token}").status_code, 200)
+        self.assertIn("Осталось 1 скачивание", self.client.get(f"/v1/shared/{token}").text)
+        listed = self.client.get("/v1/documents", headers=self.auth()).json()["files"][0]["links"]
+        self.assertEqual((listed[0]["download_count"], listed[0]["max_downloads"]), (1, 2))
+
+        self.assertEqual(self.client.post(f"/v1/shared/{token}").status_code, 200)
+        # Лимит исчерпан: ни страницы, ни файла, и в списке ссылки уже нет.
+        self.assertEqual(self.client.post(f"/v1/shared/{token}").status_code, 404)
+        self.assertEqual(self.client.get(f"/v1/shared/{token}").status_code, 404)
+        self.assertEqual(self.client.get("/v1/documents", headers=self.auth()).json()["files"][0]["links"], [])
+
+    def test_single_download_link(self) -> None:
+        file = self.upload().json()
+        token = self.make_link(file["id"], max_downloads=1)["token"]
+        self.assertEqual(self.client.post(f"/v1/shared/{token}").content, PDF)
+        self.assertEqual(self.client.post(f"/v1/shared/{token}").status_code, 404)
+
+    def test_download_limit_bounds(self) -> None:
+        file = self.upload().json()
+        for limit in (0, -1, main.MAX_LINK_DOWNLOADS + 1):
+            with self.subTest(limit=limit):
+                response = self.client.post(
+                    f"/v1/documents/{file['id']}/links", json={"days": 7, "max_downloads": limit},
+                    headers=self.auth(),
+                )
+                self.assertEqual(response.status_code, 422)
+
+    def test_landing_escapes_filename(self) -> None:
+        file = self.upload(filename="a&b<i>.pdf").json()
+        token = self.make_link(file["id"])["token"]
+        page = self.client.get(f"/v1/shared/{token}").text
+        self.assertNotIn("<i>", page)
+        self.assertIn("a&amp;b_i_.pdf", page)
 
     def test_link_days_bounds(self) -> None:
         file = self.upload().json()
@@ -187,6 +253,7 @@ class FilesApiTest(unittest.TestCase):
         with mock.patch("support.datetime") as fake:
             fake.now.return_value = later
             self.assertEqual(self.client.get(f"/v1/shared/{token}").status_code, 404)
+            self.assertEqual(self.client.post(f"/v1/shared/{token}").status_code, 404)
 
     def test_deleting_file_kills_links(self) -> None:
         file = self.upload().json()

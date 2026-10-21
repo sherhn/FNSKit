@@ -27,6 +27,8 @@ class ShareLink:
     expires_at: datetime
     created_at: datetime
     download_count: int
+    # Сколько раз ссылку можно использовать; None — без ограничения.
+    max_downloads: int | None = None
 
 
 @dataclass(frozen=True)
@@ -86,10 +88,13 @@ class DocumentStore(Protocol):
     async def delete_document(self, owner: str, document_id: str) -> bool: ...
 
     async def create_link(
-        self, owner: str, document_id: str, token_hash: bytes, expires_at: datetime
+        self, owner: str, document_id: str, token_hash: bytes, expires_at: datetime,
+        max_downloads: int | None = None,
     ) -> ShareLink | None: ...
 
     async def delete_link(self, owner: str, link_id: str) -> bool: ...
+
+    async def peek_link(self, token_hash: bytes) -> tuple[StoredDocument, ShareLink] | None: ...
 
     async def open_link(self, token_hash: bytes) -> tuple[StoredDocument, Sealed] | None: ...
 
@@ -141,6 +146,7 @@ CREATE TABLE IF NOT EXISTS share_links (
 );
 CREATE INDEX IF NOT EXISTS share_links_document_idx ON share_links (document_id);
 
+ALTER TABLE share_links ADD COLUMN IF NOT EXISTS max_downloads integer;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS doc_date date;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_reminder integer;
 
@@ -212,9 +218,10 @@ class PostgresStore:
             )
             link_rows = await connection.fetch(
                 """
-                SELECT l.id, l.document_id, l.expires_at, l.created_at, l.download_count
+                SELECT l.id, l.document_id, l.expires_at, l.created_at, l.download_count, l.max_downloads
                 FROM share_links l JOIN documents d ON d.id = l.document_id
                 WHERE d.owner = $1 AND l.expires_at > now()
+                  AND (l.max_downloads IS NULL OR l.download_count < l.max_downloads)
                 ORDER BY l.created_at
                 """,
                 owner,
@@ -222,7 +229,8 @@ class PostgresStore:
         links: dict[str, list[ShareLink]] = {}
         for row in link_rows:
             links.setdefault(str(row["document_id"]), []).append(
-                ShareLink(str(row["id"]), row["expires_at"], row["created_at"], row["download_count"])
+                ShareLink(str(row["id"]), row["expires_at"], row["created_at"], row["download_count"],
+                          row["max_downloads"])
             )
         return [_document(row, links.get(str(row["id"]))) for row in rows]
 
@@ -287,7 +295,8 @@ class PostgresStore:
         return result.endswith(" 1")
 
     async def create_link(
-        self, owner: str, document_id: str, token_hash: bytes, expires_at: datetime
+        self, owner: str, document_id: str, token_hash: bytes, expires_at: datetime,
+        max_downloads: int | None = None,
     ) -> ShareLink | None:
         key = _uuid(document_id)
         if key is None:
@@ -295,15 +304,16 @@ class PostgresStore:
         async with self._pool.acquire() as connection:
             row = await connection.fetchrow(
                 """
-                INSERT INTO share_links (id, document_id, token_hash, expires_at)
-                SELECT $1, d.id, $3, $4 FROM documents d WHERE d.id = $2 AND d.owner = $5
-                RETURNING id, expires_at, created_at, download_count
+                INSERT INTO share_links (id, document_id, token_hash, expires_at, max_downloads)
+                SELECT $1, d.id, $3, $4, $6 FROM documents d WHERE d.id = $2 AND d.owner = $5
+                RETURNING id, expires_at, created_at, download_count, max_downloads
                 """,
-                uuid.uuid4(), key, token_hash, expires_at, owner,
+                uuid.uuid4(), key, token_hash, expires_at, owner, max_downloads,
             )
         if row is None:
             return None
-        return ShareLink(str(row["id"]), row["expires_at"], row["created_at"], row["download_count"])
+        return ShareLink(str(row["id"]), row["expires_at"], row["created_at"], row["download_count"],
+                         row["max_downloads"])
 
     async def delete_link(self, owner: str, link_id: str) -> bool:
         key = _uuid(link_id)
@@ -319,12 +329,37 @@ class PostgresStore:
             )
         return result.endswith(" 1")
 
+    async def peek_link(self, token_hash: bytes) -> tuple[StoredDocument, ShareLink] | None:
+        """Действующая ссылка и её файл — без списания скачивания: страницу
+        «Скачать» открывают и роботы-превью мессенджеров."""
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                f"""
+                SELECT {_DOCUMENT_COLUMNS},
+                       l.id AS link_id, l.expires_at, l.created_at AS link_created,
+                       l.download_count, l.max_downloads
+                FROM share_links l JOIN documents d ON d.id = l.document_id
+                WHERE l.token_hash = $1 AND l.expires_at > now()
+                  AND (l.max_downloads IS NULL OR l.download_count < l.max_downloads)
+                """,
+                token_hash,
+            )
+        if row is None:
+            return None
+        link = ShareLink(str(row["link_id"]), row["expires_at"], row["link_created"],
+                         row["download_count"], row["max_downloads"])
+        return _document(row), link
+
     async def open_link(self, token_hash: bytes) -> tuple[StoredDocument, Sealed] | None:
+        """Скачивание по ссылке: списывает одно скачивание. Условие и
+        увеличение счётчика — одним запросом, поэтому две одновременные
+        загрузки не пройдут сверх лимита."""
         async with self._pool.acquire() as connection, connection.transaction():
             link = await connection.fetchrow(
                 """
                 UPDATE share_links SET download_count = download_count + 1, last_download_at = now()
                 WHERE token_hash = $1 AND expires_at > now()
+                  AND (max_downloads IS NULL OR download_count < max_downloads)
                 RETURNING document_id
                 """,
                 token_hash,
@@ -343,7 +378,10 @@ class PostgresStore:
 
     async def purge_expired_links(self) -> int:
         async with self._pool.acquire() as connection:
-            result = await connection.execute("DELETE FROM share_links WHERE expires_at <= now()")
+            result = await connection.execute(
+                "DELETE FROM share_links WHERE expires_at <= now() "
+                "OR (max_downloads IS NOT NULL AND download_count >= max_downloads)"
+            )
         return int(result.rsplit(" ", 1)[-1])
 
     async def set_doc_date(
