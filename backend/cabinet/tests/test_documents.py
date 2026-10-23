@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from app.documents import DOCUMENTS, GROUPS, BusinessType, Level, documents_for
+from app.store import STORAGE_KIND
 
 # Тест запускается и из репозитория, и в образе с примонтированным /docs.
 DOCS_CANDIDATES = [Path("/docs/DOCUMENTS.md")] + [
@@ -16,6 +17,10 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
         for document_id in ids:
             self.assertRegex(document_id, r"^[a-z][a-z0-9_]{2,40}$")
+
+    def test_storage_kind_is_not_a_catalog_document(self) -> None:
+        # Файлы хранилища отличаются от документов набора именно этим kind.
+        self.assertNotIn(STORAGE_KIND, {kind.id for kind in DOCUMENTS})
 
     def test_every_document_has_known_group_and_texts(self) -> None:
         group_ids = {group.id for group in GROUPS}

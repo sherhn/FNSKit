@@ -4,6 +4,9 @@ import unittest
 from cryptography.exceptions import InvalidTag
 
 from app.files import (
+    CONTENT_TYPES,
+    DOCUMENT_FILES,
+    STORAGE_FILES,
     TOKEN_PATTERN,
     FileCipher,
     UnsupportedFile,
@@ -22,6 +25,7 @@ PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
 TIFF_LE = b"II*\x00\x08\x00\x00\x00"
 TIFF_BE = b"MM\x00*\x00\x00\x00\x08"
 DOCX = b"PK\x03\x04\x14\x00\x06\x00"
+XLSX = DOCX
 XML = b"\xef\xbb\xbf  " + '<?xml version="1.0" encoding="UTF-8"?><Доверенность/>'.encode()
 DER = b"\x30\x82\x05\x00\x06\x09"
 PEM = b"-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
@@ -67,6 +71,57 @@ class DetectContentTypeTest(unittest.TestCase):
     def test_empty_file(self) -> None:
         with self.assertRaises(UnsupportedFile):
             detect_content_type("a.pdf", b"")
+
+
+class StorageFilesTest(unittest.TestCase):
+    def test_every_allowed_extension_has_a_content_type(self) -> None:
+        for allowed in (DOCUMENT_FILES, STORAGE_FILES):
+            self.assertLessEqual(set(allowed.extensions), set(CONTENT_TYPES))
+
+    def test_storage_accepts_the_agreed_formats(self) -> None:
+        cases = {
+            "договор.pdf": (PDF, "application/pdf"),
+            "скан.jpeg": (JPEG, "image/jpeg"),
+            "скан.JPG": (JPEG, "image/jpeg"),
+            "фото.png": (PNG, "image/png"),
+            "лист.tiff": (TIFF_LE, "image/tiff"),
+            "лист.tif": (TIFF_BE, "image/tiff"),
+            "акт.docx": (DOCX, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+            "сверка.xlsx": (XLSX, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            "упд.xml": (XML, "application/xml"),
+            "договор.pdf.sig": (DER, "application/pkcs7-signature"),
+            "подпись.p7s": (DER, "application/pkcs7-signature"),
+        }
+        for name, (content, expected) in cases.items():
+            with self.subTest(name=name):
+                self.assertEqual(detect_content_type(name, content, STORAGE_FILES), expected)
+
+    def test_storage_rejects_everything_else(self) -> None:
+        # Архивы, исполняемые файлы и форматы с макросами, а также сертификат,
+        # который живёт в наборе документов.
+        for name in ("archive.zip", "setup.exe", "run.bat", "old.doc", "old.xls", "macro.docm",
+                     "macro.xlsm", "page.html", "image.svg", "photo.gif", "cert.cer", "noext"):
+            with self.subTest(name=name):
+                with self.assertRaises(UnsupportedFile):
+                    detect_content_type(name, PDF, STORAGE_FILES)
+
+    def test_storage_checks_content_too(self) -> None:
+        html = b"<html><script>alert(1)</script></html>"
+        for name in ("a.pdf", "a.jpg", "a.png", "a.tif", "a.docx", "a.xlsx", "a.sig"):
+            with self.subTest(name=name):
+                with self.assertRaises(UnsupportedFile):
+                    detect_content_type(name, html, STORAGE_FILES)
+
+    def test_excel_is_not_a_document_of_the_set(self) -> None:
+        with self.assertRaises(UnsupportedFile):
+            detect_content_type("сверка.xlsx", XLSX)
+
+    def test_hint_matches_the_section(self) -> None:
+        with self.assertRaisesRegex(UnsupportedFile, "XLSX"):
+            detect_content_type("a.zip", PDF, STORAGE_FILES)
+        with self.assertRaisesRegex(UnsupportedFile, r"\.cer") as raised:
+            detect_content_type("a.zip", PDF)
+        self.assertNotIn("XLSX", str(raised.exception))
 
 
 class FilenameTest(unittest.TestCase):

@@ -33,6 +33,7 @@ CONTENT_TYPES: dict[str, str] = {
     ".tif": "image/tiff",
     ".tiff": "image/tiff",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     # МЧД — XML-файл, к ней прилагается открепленная подпись .sig.
     ".xml": "application/xml",
     ".sig": "application/pkcs7-signature",
@@ -42,7 +43,30 @@ CONTENT_TYPES: dict[str, str] = {
     ".crt": "application/pkix-cert",
 }
 
-ACCEPTED_EXTENSIONS = tuple(CONTENT_TYPES)
+
+@dataclass(frozen=True)
+class AllowedFiles:
+    """Какие файлы принимает раздел кабинета и как об этом сказать пользователю."""
+
+    extensions: tuple[str, ...]
+    hint: str
+
+
+# Набор документов: сканы и PDF, МЧД с подписью и сертификат электронной подписи.
+DOCUMENT_FILES = AllowedFiles(
+    (".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".docx", ".xml", ".sig", ".p7s", ".cer", ".crt"),
+    "PDF, JPG, PNG, TIFF, DOCX, XML или файл подписи и сертификата (.sig, .p7s, .cer, .crt)",
+)
+
+# Хранилище: договоры, акты, таблицы — всё, что не входит в набор. Сертификата
+# здесь нет (он в наборе), зато есть таблицы Excel и подписи к договорам.
+# Архивов и исполняемых файлов нет сознательно: без антивируса в них не
+# заглянуть, а ссылкой ими можно делиться. Форматы с макросами (.doc, .xls,
+# .docm, .xlsm) тоже не принимаются.
+STORAGE_FILES = AllowedFiles(
+    (".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".docx", ".xlsx", ".xml", ".sig", ".p7s"),
+    "PDF, JPG, PNG, TIFF, DOCX, XLSX, XML или файл подписи (.sig, .p7s)",
+)
 
 
 def _looks_like(extension: str, head: bytes) -> bool:
@@ -56,7 +80,7 @@ def _looks_like(extension: str, head: bytes) -> bool:
         return head.startswith(b"\x89PNG\r\n\x1a\n")
     if extension in (".tif", ".tiff"):
         return head.startswith((b"II*\x00", b"MM\x00*"))
-    if extension == ".docx":
+    if extension in (".docx", ".xlsx"):
         return head.startswith(b"PK\x03\x04")
     if extension == ".xml":
         return head.removeprefix(b"\xef\xbb\xbf").lstrip().startswith(b"<")
@@ -75,13 +99,10 @@ def split_extension(name: str) -> tuple[str, str]:
     return name, ""
 
 
-def detect_content_type(filename: str, content: bytes) -> str:
+def detect_content_type(filename: str, content: bytes, allowed: AllowedFiles = DOCUMENT_FILES) -> str:
     extension = split_extension(filename)[1]
-    if extension not in CONTENT_TYPES:
-        raise UnsupportedFile(
-            "Такой тип файла не подходит. Загрузите PDF, JPG, PNG, TIFF, DOCX, XML "
-            "или файл подписи и сертификата (.sig, .p7s, .cer, .crt)."
-        )
+    if extension not in allowed.extensions:
+        raise UnsupportedFile(f"Такой тип файла не подходит. Загрузите {allowed.hint}.")
     if not content:
         raise UnsupportedFile("Файл пустой.")
     if not _looks_like(extension, content[:2048]):

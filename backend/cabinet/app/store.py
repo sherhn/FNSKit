@@ -17,6 +17,12 @@ import asyncpg
 from app.files import Sealed
 
 
+# Файлы хранилища лежат в той же таблице, что и документы набора, только с
+# этим kind. Считаются и показываются они отдельно: набор — одним списком со
+# своими лимитами, хранилище — другим. Среди документов каталога такого id нет.
+STORAGE_KIND = "storage"
+
+
 class QuotaExceeded(Exception):
     """У пользователя кончилось место или лимит числа файлов."""
 
@@ -73,12 +79,12 @@ class Contact:
 
 
 class DocumentStore(Protocol):
-    async def list_documents(self, owner: str) -> list[StoredDocument]: ...
+    async def list_documents(self, owner: str, storage: bool = False) -> list[StoredDocument]: ...
 
-    async def usage(self, owner: str) -> Usage: ...
+    async def usage(self, owner: str, storage: bool = False) -> Usage: ...
 
     async def add_document(
-        self, document: NewDocument, max_count: int, max_bytes: int
+        self, document: NewDocument, max_count: int | None, max_bytes: int | None
     ) -> StoredDocument: ...
 
     async def get_document(
@@ -186,6 +192,19 @@ def _sealed(row) -> Sealed:
     return Sealed(row["key_id"], bytes(row["nonce"]), bytes(row["ciphertext"]))
 
 
+def _area(storage: bool) -> str:
+    """Сравнение kind со STORAGE_KIND для SQL: хранилище или набор документов."""
+    return "=" if storage else "<>"
+
+
+def _out_of_space(storage: bool) -> str:
+    return (
+        "Место в хранилище закончилось — удалите ненужные файлы."
+        if storage
+        else "Место в кабинете закончилось — удалите ненужные файлы."
+    )
+
+
 def _uuid(value: str) -> uuid.UUID | None:
     try:
         return uuid.UUID(value)
@@ -210,21 +229,23 @@ class PostgresStore:
     async def close(self) -> None:
         await self._pool.close()
 
-    async def list_documents(self, owner: str) -> list[StoredDocument]:
+    async def list_documents(self, owner: str, storage: bool = False) -> list[StoredDocument]:
+        area = _area(storage)
         async with self._pool.acquire() as connection:
             rows = await connection.fetch(
-                f"SELECT {_DOCUMENT_COLUMNS} FROM documents d WHERE d.owner = $1 ORDER BY d.created_at",
-                owner,
+                f"SELECT {_DOCUMENT_COLUMNS} FROM documents d "
+                f"WHERE d.owner = $1 AND d.kind {area} $2 ORDER BY d.created_at",
+                owner, STORAGE_KIND,
             )
             link_rows = await connection.fetch(
-                """
+                f"""
                 SELECT l.id, l.document_id, l.expires_at, l.created_at, l.download_count, l.max_downloads
                 FROM share_links l JOIN documents d ON d.id = l.document_id
-                WHERE d.owner = $1 AND l.expires_at > now()
+                WHERE d.owner = $1 AND d.kind {area} $2 AND l.expires_at > now()
                   AND (l.max_downloads IS NULL OR l.download_count < l.max_downloads)
                 ORDER BY l.created_at
                 """,
-                owner,
+                owner, STORAGE_KIND,
             )
         links: dict[str, list[ShareLink]] = {}
         for row in link_rows:
@@ -234,27 +255,38 @@ class PostgresStore:
             )
         return [_document(row, links.get(str(row["id"]))) for row in rows]
 
-    async def usage(self, owner: str) -> Usage:
+    async def usage(self, owner: str, storage: bool = False) -> Usage:
         async with self._pool.acquire() as connection:
             row = await connection.fetchrow(
-                "SELECT count(*) AS n, COALESCE(sum(size_bytes), 0) AS total FROM documents WHERE owner = $1",
-                owner,
+                "SELECT count(*) AS n, COALESCE(sum(size_bytes), 0) AS total FROM documents "
+                f"WHERE owner = $1 AND kind {_area(storage)} $2",
+                owner, STORAGE_KIND,
             )
         return Usage(row["n"], int(row["total"]))
 
-    async def add_document(self, document: NewDocument, max_count: int, max_bytes: int) -> StoredDocument:
+    async def add_document(
+        self, document: NewDocument, max_count: int | None, max_bytes: int | None
+    ) -> StoredDocument:
+        """None вместо лимита — не проверять его."""
+        storage = document.kind == STORAGE_KIND
         async with self._pool.acquire() as connection, connection.transaction():
-            # Две одновременные загрузки одного пользователя не должны вместе
-            # перешагнуть квоту: проверка и вставка идут под блокировкой владельца.
-            await connection.execute("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", document.owner)
-            usage = await connection.fetchrow(
-                "SELECT count(*) AS n, COALESCE(sum(size_bytes), 0) AS total FROM documents WHERE owner = $1",
-                document.owner,
-            )
-            if usage["n"] >= max_count:
-                raise QuotaExceeded(f"В кабинете уже {max_count} файлов — удалите ненужные, чтобы загрузить новый.")
-            if int(usage["total"]) + document.size_bytes > max_bytes:
-                raise QuotaExceeded("Место в кабинете закончилось — удалите ненужные файлы.")
+            if max_count is not None or max_bytes is not None:
+                # Две одновременные загрузки одного пользователя не должны вместе
+                # перешагнуть квоту: проверка и вставка идут под блокировкой владельца.
+                await connection.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", document.owner
+                )
+                usage = await connection.fetchrow(
+                    "SELECT count(*) AS n, COALESCE(sum(size_bytes), 0) AS total FROM documents "
+                    f"WHERE owner = $1 AND kind {_area(storage)} $2",
+                    document.owner, STORAGE_KIND,
+                )
+                if max_count is not None and usage["n"] >= max_count:
+                    raise QuotaExceeded(
+                        f"В кабинете уже {max_count} файлов — удалите ненужные, чтобы загрузить новый."
+                    )
+                if max_bytes is not None and int(usage["total"]) + document.size_bytes > max_bytes:
+                    raise QuotaExceeded(_out_of_space(storage))
             row = await connection.fetchrow(
                 """
                 INSERT INTO documents AS d (id, owner, kind, filename, content_type, size_bytes, sha256)

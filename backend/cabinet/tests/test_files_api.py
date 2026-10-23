@@ -19,11 +19,12 @@ from support import (
 )
 
 PDF = b"%PDF-1.7\n" + b"x" * 2000
+XLSX = b"PK\x03\x04" + b"y" * 2000
 DER = bytes([0x30, 0x82, 0x01, 0x00])
 OTHER_USER = "0d7e5a7c-2222-4c3b-9d00-aaaaaaaaaaaa"
 
 
-class FilesApiTest(unittest.TestCase):
+class CabinetApiCase(unittest.TestCase):
     def setUp(self) -> None:
         self.key = SigningKey("key-1")
         self.keycloak = FakeKeycloak(self.key)
@@ -43,6 +44,8 @@ class FilesApiTest(unittest.TestCase):
     def auth(self, **claims) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.key.sign(access_claims(**claims))}"}
 
+
+class FilesApiTest(CabinetApiCase):
     def upload(self, content=PDF, kind="egrip_extract", filename="Выписка ЕГРИП.pdf", **claims):
         return self.client.post(
             f"/v1/documents?kind={kind}&filename={quote(filename)}",
@@ -353,6 +356,195 @@ class FilesApiTest(unittest.TestCase):
         again = self.client.get("/v1/documents", headers=self.auth()).json()["reminders"]
         self.assertFalse(again["email_reminders"])
         self.assertEqual(self.client.put("/v1/reminders", json={"email_reminders": True}).status_code, 401)
+
+
+class StorageApiTest(CabinetApiCase):
+    def upload_storage(self, content=XLSX, filename="Сверка.xlsx", **claims):
+        return self.client.post(
+            f"/v1/storage?filename={quote(filename)}",
+            content=content,
+            headers={**self.auth(**claims), "Content-Type": "application/octet-stream"},
+        )
+
+    def upload_document(self, content=PDF, kind="egrip_extract", filename="Выписка.pdf"):
+        return self.client.post(
+            f"/v1/documents?kind={kind}&filename={quote(filename)}",
+            content=content,
+            headers={**self.auth(), "Content-Type": "application/octet-stream"},
+        )
+
+    def listing(self, **claims) -> dict:
+        response = self.client.get("/v1/storage", headers=self.auth(**claims))
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()
+
+    def test_upload_list_download_delete(self) -> None:
+        created = self.upload_storage()
+        self.assertEqual(created.status_code, 201, created.text)
+        file = created.json()
+        self.assertEqual(file["filename"], "Сверка.xlsx")
+        self.assertEqual(file["kind"], "storage")
+        self.assertEqual(file["size_bytes"], len(XLSX))
+        self.assertEqual(
+            file["content_type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        self.assertIsNone(file["due_date"])
+
+        # В хранилище — шифротекст, а не сам файл.
+        self.assertNotIn(XLSX, self.store.contents[file["id"]].ciphertext)
+
+        response = self.client.get("/v1/storage", headers=self.auth())
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        body = response.json()
+        self.assertEqual([f["id"] for f in body["files"]], [file["id"]])
+        self.assertEqual(body["usage"]["count"], 1)
+        self.assertEqual(body["usage"]["size_bytes"], len(XLSX))
+        self.assertEqual(body["usage"]["max_size_bytes"], 1024**3)
+        self.assertEqual(body["usage"]["max_file_bytes"], main.settings.max_document_bytes)
+
+        download = self.client.get(f"/v1/documents/{file['id']}/content", headers=self.auth())
+        self.assertEqual(download.status_code, 200)
+        self.assertEqual(download.content, XLSX)
+        self.assertTrue(download.headers["content-disposition"].startswith("attachment;"))
+        self.assertEqual(download.headers["x-content-type-options"], "nosniff")
+
+        self.assertEqual(self.client.delete(f"/v1/documents/{file['id']}", headers=self.auth()).status_code, 204)
+        self.assertEqual(self.listing()["files"], [])
+        self.assertEqual(self.store.documents, {})
+
+    def test_requires_login(self) -> None:
+        self.assertEqual(self.client.get("/v1/storage").status_code, 401)
+        self.assertEqual(self.client.post("/v1/storage?filename=a.pdf", content=PDF).status_code, 401)
+
+    def test_extensions_are_announced(self) -> None:
+        extensions = self.listing()["extensions"]
+        for extension in (".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".docx", ".xlsx"):
+            self.assertIn(extension, extensions)
+        for extension in (".zip", ".exe", ".doc", ".xls", ".cer"):
+            self.assertNotIn(extension, extensions)
+
+    def test_all_agreed_formats_are_accepted(self) -> None:
+        samples = {
+            "a.pdf": PDF,
+            "a.png": b"\x89PNG\r\n\x1a\n" + b"0" * 20,
+            "a.JPG": b"\xff\xd8\xff\xe0" + b"0" * 20,
+            "a.jpeg": b"\xff\xd8\xff\xe0" + b"0" * 20,
+            "a.tif": b"II*\x00" + b"0" * 20,
+            "a.tiff": b"MM\x00*" + b"0" * 20,
+            "a.docx": XLSX,
+            "a.xlsx": XLSX,
+            "a.xml": b"<?xml version='1.0'?><a/>",
+            "a.pdf.sig": DER,
+        }
+        for name, content in samples.items():
+            with self.subTest(name=name):
+                self.assertEqual(self.upload_storage(content, name).status_code, 201)
+
+    def test_other_formats_and_disguised_files_are_rejected(self) -> None:
+        for name in ("архив.zip", "setup.exe", "старый.doc", "старая.xls", "макрос.xlsm", "cert.cer", "page.html"):
+            with self.subTest(name=name):
+                self.assertEqual(self.upload_storage(PDF, name).status_code, 415)
+        response = self.upload_storage(b"<script>alert(1)</script>", "fake.pdf")
+        self.assertEqual(response.status_code, 415)
+        self.assertIn("не похоже на PDF", response.json()["detail"])
+        self.assertEqual(self.upload_storage(b"", "empty.pdf").status_code, 415)
+        self.assertEqual(self.store.documents, {})
+
+    def test_excel_is_accepted_only_by_the_storage(self) -> None:
+        response = self.upload_document(XLSX, kind="bank_details", filename="Реквизиты.xlsx")
+        self.assertEqual(response.status_code, 415)
+        self.assertEqual(self.upload_storage().status_code, 201)
+
+    def test_works_without_business_type(self) -> None:
+        # Набор документов зависит от формы бизнеса, хранилище — нет.
+        self.assertEqual(self.upload_storage(business_type=None).status_code, 201)
+
+    def test_files_are_listed_separately_from_documents(self) -> None:
+        document = self.upload_document().json()
+        stored = self.upload_storage().json()
+        documents = self.client.get("/v1/documents", headers=self.auth()).json()
+        self.assertEqual([f["id"] for f in documents["files"]], [document["id"]])
+        self.assertEqual(documents["usage"]["count"], 1)
+        self.assertEqual(documents["usage"]["size_bytes"], len(PDF))
+        self.assertEqual([f["id"] for f in self.listing()["files"]], [stored["id"]])
+
+    def test_storage_kind_cannot_be_used_for_documents(self) -> None:
+        self.assertEqual(self.upload_document(kind="storage").status_code, 422)
+
+    def test_document_limits_do_not_apply_to_the_storage(self) -> None:
+        with (
+            mock.patch.object(main.settings, "max_documents_per_user", 1),
+            mock.patch.object(main.settings, "max_storage_bytes_per_user", len(PDF) + 10),
+        ):
+            self.assertEqual(self.upload_document().status_code, 201)
+            self.assertEqual(self.upload_document().status_code, 409)
+            for _ in range(3):
+                self.assertEqual(self.upload_storage().status_code, 201)
+        self.assertEqual(self.listing()["usage"]["count"], 3)
+
+    def test_quota_is_shown_but_not_enforced_by_default(self) -> None:
+        self.assertFalse(main.settings.storage_quota_enforced)
+        with mock.patch.object(main.settings, "storage_quota_bytes", len(XLSX) + 10):
+            self.assertEqual(self.upload_storage().status_code, 201)
+            self.assertEqual(self.upload_storage().status_code, 201)
+            usage = self.listing()["usage"]
+        self.assertEqual(usage["max_size_bytes"], len(XLSX) + 10)
+        self.assertEqual(usage["size_bytes"], len(XLSX) * 2)
+        self.assertFalse(usage["enforced"])
+
+    def test_quota_when_enforced(self) -> None:
+        with (
+            mock.patch.object(main.settings, "storage_quota_enforced", True),
+            mock.patch.object(main.settings, "storage_quota_bytes", len(XLSX) * 2 + 10),
+        ):
+            self.assertEqual(self.upload_storage().status_code, 201)
+            self.assertEqual(self.upload_storage().status_code, 201)
+            third = self.upload_storage()
+            self.assertEqual(third.status_code, 409)
+            self.assertIn("хранилище", third.json()["detail"])
+            self.assertTrue(self.listing()["usage"]["enforced"])
+            # Документы набора место хранилища не занимают.
+            self.assertEqual(self.upload_document().status_code, 201)
+            # Другая компания считается отдельно.
+            self.assertEqual(self.upload_storage(sub=OTHER_USER).status_code, 201)
+        self.assertEqual(self.listing()["usage"]["count"], 2)
+
+    def test_file_size_limit(self) -> None:
+        with mock.patch.object(main.settings, "max_document_bytes", 1024):
+            response = self.upload_storage(XLSX)
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(self.store.documents, {})
+
+    def test_other_user_cannot_touch_files(self) -> None:
+        file = self.upload_storage().json()
+        other = self.auth(sub=OTHER_USER)
+        self.assertEqual(self.listing(sub=OTHER_USER)["files"], [])
+        self.assertEqual(self.client.get(f"/v1/documents/{file['id']}/content", headers=other).status_code, 404)
+        self.assertEqual(self.client.delete(f"/v1/documents/{file['id']}", headers=other).status_code, 404)
+        link = self.client.post(f"/v1/documents/{file['id']}/links", json={"days": 7}, headers=other)
+        self.assertEqual(link.status_code, 404)
+        self.assertIn(file["id"], self.store.documents)
+
+    def test_file_can_be_shared_by_link(self) -> None:
+        file = self.upload_storage().json()
+        created = self.client.post(
+            f"/v1/documents/{file['id']}/links", json={"days": 1, "max_downloads": 1}, headers=self.auth()
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        token = created.json()["url"].rsplit("/", 1)[-1]
+        self.assertEqual([len(f["links"]) for f in self.listing()["files"]], [1])
+
+        shared = self.client.post(f"/v1/shared/{token}")
+        self.assertEqual(shared.status_code, 200)
+        self.assertEqual(shared.content, XLSX)
+        self.assertEqual(self.client.post(f"/v1/shared/{token}").status_code, 404)
+
+    def test_storage_file_has_no_deadline(self) -> None:
+        file = self.upload_storage().json()
+        response = self.client.patch(
+            f"/v1/documents/{file['id']}", json={"doc_date": "2027-01-01"}, headers=self.auth()
+        )
+        self.assertEqual(response.status_code, 422)
 
 
 if __name__ == "__main__":

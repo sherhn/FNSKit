@@ -2,7 +2,7 @@
 //
 // Вход — через Keycloak на том же домене (/auth/): keycloak-js получает токены
 // по коду авторизации с PKCE и держит их только в памяти страницы. Профиль,
-// набор документов, файлы и сроки отдаёт cabinet API (/api/cabinet), статус
+// набор документов, файлы, хранилище и сроки отдаёт cabinet API (/api/cabinet), статус
 // двухфакторной защиты — Account API самого Keycloak. Подключение и отключение
 // 2FA, смену пароля и данных выполняет Keycloak на своих страницах («действия
 // по запросу приложения», kc_action), после чего возвращает пользователя сюда.
@@ -131,7 +131,7 @@
 
   // --- Состояние и форматирование -------------------------------------------
 
-  const cabinet = { profile: null, groups: [], files: [], usage: null, reminders: null };
+  const cabinet = { profile: null, groups: [], files: [], usage: null, reminders: null, storage: null };
   // Документ, для которого открыт выбор файла; файл с открытой панелью ссылок
   // и файл, у которого правится дата.
   let uploadKind = null;
@@ -148,7 +148,8 @@
   function formatBytes(bytes) {
     if (bytes < 1024) return `${bytes} Б`;
     if (bytes < 1024 * 1024) return `${bytesFormat.format(bytes / 1024)} КБ`;
-    return `${bytesFormat.format(bytes / (1024 * 1024))} МБ`;
+    if (bytes < 1024 * 1024 * 1024) return `${bytesFormat.format(bytes / (1024 * 1024))} МБ`;
+    return `${bytesFormat.format(bytes / (1024 * 1024 * 1024))} ГБ`;
   }
 
   // «2026-10-27» без сдвига часового пояса.
@@ -441,7 +442,7 @@
       button(sharingFileId === file.id ? "Скрыть" : "Поделиться", BTN_SECONDARY, () => {
         sharingFileId = sharingFileId === file.id ? null : file.id;
         createdLink = null;
-        renderDocuments();
+        renderFiles();
       }),
       button("Удалить", BTN_DANGER, () => deleteFile(file))
     );
@@ -595,6 +596,93 @@
     renderDeadlines();
   }
 
+  // --- Хранилище ------------------------------------------------------------------
+
+  function renderStorage() {
+    const storage = cabinet.storage;
+    if (!storage) return;
+    const { files, usage, extensions } = storage;
+
+    $("storageProgress").classList.remove("hidden");
+    $("storageTotal").textContent = `Занято ${formatBytes(usage.size_bytes)} из ${formatBytes(usage.max_size_bytes)}`;
+    $("storageBar").style.width = `${Math.min(100, Math.round((usage.size_bytes / usage.max_size_bytes) * 100))}%`;
+    $("storageHint").textContent =
+      `Другие файлы компании: договоры, акты, сверки, сканы. Хранятся зашифрованными. Принимаем ${extensions.join(", ")}; один файл — до ${formatBytes(usage.max_file_bytes)}.`;
+
+    const list = $("storageList");
+    list.replaceChildren(...files.map((file) => fileRow(file, null)));
+    list.classList.toggle("hidden", files.length === 0);
+    $("storageEmpty").classList.toggle("hidden", files.length > 0);
+  }
+
+  function chooseStorageFiles() {
+    const input = $("storageInput");
+    input.accept = cabinet.storage ? cabinet.storage.extensions.join(",") : "";
+    input.value = "";
+    input.click();
+  }
+
+  function extensionOf(name) {
+    const dot = name.lastIndexOf(".");
+    return dot === -1 ? "" : name.slice(dot).toLowerCase();
+  }
+
+  // Загружает файлы по одному: каждый целиком держится в памяти сервера, поэтому
+  // параллельно их не шлём. Остановить пачку из-за одного плохого файла незачем.
+  async function uploadStorageFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length || !cabinet.storage) return;
+    const { extensions, usage } = cabinet.storage;
+    const trigger = $("storageUploadButton");
+    trigger.disabled = true;
+    trigger.textContent = "Загружаем…";
+
+    const uploaded = [];
+    const failed = [];
+    try {
+      for (const file of files) {
+        if (!extensions.includes(extensionOf(file.name))) {
+          failed.push(`«${file.name}» — такой тип файла не подходит`);
+          continue;
+        }
+        if (file.size > usage.max_file_bytes) {
+          failed.push(`«${file.name}» — больше ${formatBytes(usage.max_file_bytes)}`);
+          continue;
+        }
+        const query = new URLSearchParams({ filename: file.name });
+        const response = await authorizedFetch(`${CABINET_API}/v1/storage?${query}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: file
+        });
+        if (response.ok) {
+          uploaded.push(file.name);
+        } else {
+          const error = await failure(response, "не удалось загрузить");
+          failed.push(`«${file.name}» — ${error.message}`);
+          // Кончилось место: остальные файлы получат тот же отказ.
+          if (response.status === 409) break;
+        }
+      }
+      if (failed.length) {
+        const done = uploaded.length ? `Загружено: ${uploaded.length}. ` : "";
+        showMessage($("userMessage"), `${done}Не загружено: ${failed.join("; ")}.`, "error");
+      } else {
+        showMessage(
+          $("userMessage"),
+          uploaded.length === 1 ? `Файл «${uploaded[0]}» загружен.` : `Загружено файлов: ${uploaded.length}.`,
+          "success"
+        );
+      }
+      await refreshFiles();
+    } catch (error) {
+      reportFileError(error, "Не удалось загрузить файл.");
+    } finally {
+      trigger.disabled = false;
+      trigger.textContent = "Загрузить файлы";
+    }
+  }
+
   // --- Напоминания --------------------------------------------------------------
 
   function renderReminders() {
@@ -639,9 +727,22 @@
     cabinet.reminders = data.reminders;
   }
 
-  async function refreshFiles() {
-    await loadFiles();
+  async function loadStorage() {
+    const response = await authorizedFetch(`${CABINET_API}/v1/storage`);
+    if (!response.ok) throw await failure(response, "Не удалось получить список файлов хранилища.");
+    cabinet.storage = await response.json();
+  }
+
+  // Документы и хранилище живут в одной таблице, и действие над файлом (удалить,
+  // поделиться) может пройти в любом из разделов, поэтому обновляем оба.
+  function renderFiles() {
     renderDocuments();
+    renderStorage();
+  }
+
+  async function refreshFiles() {
+    await Promise.all([loadFiles(), loadStorage()]);
+    renderFiles();
     renderReminders();
   }
 
@@ -657,8 +758,8 @@
     cabinet.profile = data.profile;
     cabinet.groups = data.document_groups;
     renderProfile(data.profile);
-    await loadFiles();
-    renderDocuments();
+    await Promise.all([loadFiles(), loadStorage()]);
+    renderFiles();
     renderReminders();
   }
 
@@ -708,7 +809,7 @@
       await refreshFiles();
     } catch (error) {
       reportFileError(error, "Не удалось загрузить файл.");
-      renderDocuments();
+      renderFiles();
     }
   }
 
@@ -810,9 +911,11 @@
 
   const TABS = [
     { tab: "tabDocuments", panel: "panelDocuments", hash: "#documents" },
+    { tab: "tabStorage", panel: "panelStorage", hash: "#storage" },
     { tab: "tabActions", panel: "panelActions", hash: "#actions" },
     { tab: "tabAccount", panel: "panelAccount", hash: "#account" }
   ];
+  const ACCOUNT_TAB = TABS.findIndex((entry) => entry.tab === "tabAccount");
 
   function selectTab(index, focus = false) {
     TABS.forEach((entry, position) => {
@@ -821,8 +924,8 @@
       tab.setAttribute("aria-selected", String(selected));
       tab.tabIndex = selected ? 0 : -1;
       tab.className = selected
-        ? "rounded-full bg-ink px-5 py-2.5 text-sm font-extrabold text-white transition"
-        : "rounded-full px-5 py-2.5 text-sm font-bold text-ink/60 transition hover:text-ink";
+        ? "rounded-full bg-ink px-4 py-2.5 text-sm font-extrabold text-white transition sm:px-5"
+        : "rounded-full px-4 py-2.5 text-sm font-bold text-ink/60 transition hover:text-ink sm:px-5";
       $(entry.panel).classList.toggle("hidden", !selected);
       if (selected && focus) tab.focus();
     });
@@ -846,6 +949,8 @@
       });
     });
     $("fileInput").addEventListener("change", (event) => uploadFile(event.target.files[0]));
+    $("storageInput").addEventListener("change", (event) => uploadStorageFiles(event.target.files));
+    $("storageUploadButton").addEventListener("click", chooseStorageFiles);
   }
 
   // --- Запуск ----------------------------------------------------------------------------
@@ -868,7 +973,7 @@
     showState("stateUser");
     // Вернулись из Keycloak после действия с аккаунтом — показываем результат
     // там, где он виден: на вкладке «Аккаунт».
-    selectTab(pendingAction ? 2 : tabFromHash());
+    selectTab(pendingAction ? ACCOUNT_TAB : tabFromHash());
     reportAction();
 
     try {

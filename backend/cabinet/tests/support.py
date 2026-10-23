@@ -20,7 +20,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from app.config import Settings
 from app.files import FileCipher, Sealed
-from app.store import Contact, NewDocument, QuotaExceeded, ShareLink, StoredDocument, Usage
+from app.store import STORAGE_KIND, Contact, NewDocument, QuotaExceeded, ShareLink, StoredDocument, Usage
 
 ISSUER = "https://fnskit.test/auth/realms/fnskit"
 JWKS_URL = "http://keycloak.test/auth/realms/fnskit/protocol/openid-connect/certs"
@@ -137,23 +137,30 @@ class MemoryStore:
         now = datetime.now(UTC)
         return [link for link, doc_id in self.links.values() if doc_id == document_id and self._active(link, now)]
 
-    async def list_documents(self, owner: str) -> list[StoredDocument]:
+    async def list_documents(self, owner: str, storage: bool = False) -> list[StoredDocument]:
         return [
             replace(document, links=self._links_of(document.id))
             for document in sorted(self.documents.values(), key=lambda d: d.created_at)
-            if document.owner == owner
+            if document.owner == owner and (document.kind == STORAGE_KIND) == storage
         ]
 
-    async def usage(self, owner: str) -> Usage:
-        own = [d for d in self.documents.values() if d.owner == owner]
+    async def usage(self, owner: str, storage: bool = False) -> Usage:
+        own = [d for d in self.documents.values() if d.owner == owner and (d.kind == STORAGE_KIND) == storage]
         return Usage(len(own), sum(d.size_bytes for d in own))
 
-    async def add_document(self, document: NewDocument, max_count: int, max_bytes: int) -> StoredDocument:
-        usage = await self.usage(document.owner)
-        if usage.count >= max_count:
+    async def add_document(
+        self, document: NewDocument, max_count: int | None, max_bytes: int | None
+    ) -> StoredDocument:
+        storage = document.kind == STORAGE_KIND
+        usage = await self.usage(document.owner, storage)
+        if max_count is not None and usage.count >= max_count:
             raise QuotaExceeded(f"В кабинете уже {max_count} файлов — удалите ненужные, чтобы загрузить новый.")
-        if usage.size_bytes + document.size_bytes > max_bytes:
-            raise QuotaExceeded("Место в кабинете закончилось — удалите ненужные файлы.")
+        if max_bytes is not None and usage.size_bytes + document.size_bytes > max_bytes:
+            raise QuotaExceeded(
+                "Место в хранилище закончилось — удалите ненужные файлы."
+                if storage
+                else "Место в кабинете закончилось — удалите ненужные файлы."
+            )
         stored = StoredDocument(
             id=document.id, owner=document.owner, kind=document.kind, filename=document.filename,
             content_type=document.content_type, size_bytes=document.size_bytes,

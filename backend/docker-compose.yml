@@ -192,6 +192,8 @@ services:
       DB_PASSWORD: ${CABINET_DB_PASSWORD:?Задайте CABINET_DB_PASSWORD в .env}
       ENCRYPTION_KEY: ${CABINET_ENCRYPTION_KEY:?Задайте CABINET_ENCRYPTION_KEY в .env}
       PUBLIC_URL: ${FNSKIT_SITE_URL}
+      STORAGE_QUOTA_BYTES: ${STORAGE_QUOTA_BYTES:-1073741824}
+      STORAGE_QUOTA_ENFORCED: ${STORAGE_QUOTA_ENFORCED:-false}
       # Письма-напоминания о сроках документов идут через тот же SMTP, что и
       # письма Keycloak.
       SMTP_HOST: ${FNSKIT_SMTP_HOST:-mailpit}

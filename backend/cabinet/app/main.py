@@ -17,7 +17,10 @@ from app.documents import BUSINESS_TYPE_LABELS, KINDS_BY_ID, DocumentKind, docum
 from app import reminders
 from app.share_page import render_landing
 from app.files import (
+    DOCUMENT_FILES,
+    STORAGE_FILES,
     TOKEN_PATTERN,
+    AllowedFiles,
     FileCipher,
     Sealed,
     UnsupportedFile,
@@ -28,7 +31,14 @@ from app.files import (
     new_link_token,
     token_hash,
 )
-from app.store import DocumentStore, NewDocument, PostgresStore, QuotaExceeded, StoredDocument
+from app.store import (
+    STORAGE_KIND,
+    DocumentStore,
+    NewDocument,
+    PostgresStore,
+    QuotaExceeded,
+    StoredDocument,
+)
 
 settings = get_settings()
 logger = logging.getLogger("fnskit.cabinet")
@@ -285,6 +295,22 @@ class UsageOut(BaseModel):
     max_file_bytes: int
 
 
+class StorageUsageOut(BaseModel):
+    count: int
+    size_bytes: int
+    max_size_bytes: int
+    max_file_bytes: int
+    # Пока выключено, лимит места только показывается и загрузку не блокирует.
+    enforced: bool
+
+
+class StorageResponse(BaseModel):
+    files: list[FileOut]
+    usage: StorageUsageOut
+    # Допустимые расширения: фронтенд берёт их отсюда для выбора файла.
+    extensions: list[str]
+
+
 class RemindersOut(BaseModel):
     # Настроен ли SMTP: без него переключатель в кабинете не показывается.
     available: bool
@@ -416,6 +442,50 @@ async def list_files(user: CurrentUser, store: Store, response: Response) -> Fil
     )
 
 
+async def save_upload(
+    request: Request,
+    user: Principal,
+    store: DocumentStore,
+    cipher: FileCipher,
+    *,
+    kind: str,
+    filename: str,
+    allowed: AllowedFiles,
+    max_count: int | None,
+    max_bytes: int | None,
+) -> StoredDocument:
+    """Тело запроса — сам файл (application/octet-stream), без multipart:
+    так он не оседает во временных файлах, а читается с жёстким пределом."""
+    name = clean_filename(filename)
+    async with transfer_slots:
+        content = await read_body(request, settings.max_document_bytes)
+        try:
+            content_type = detect_content_type(name, content, allowed)
+        except UnsupportedFile as error:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=str(error)
+            ) from error
+        document_id = str(uuid.uuid4())
+        sealed = cipher.seal(content, document_aad(document_id, user.subject))
+        try:
+            return await store.add_document(
+                NewDocument(
+                    id=document_id,
+                    owner=user.subject,
+                    kind=kind,
+                    filename=name,
+                    content_type=content_type,
+                    size_bytes=len(content),
+                    sha256=hashlib.sha256(content).hexdigest(),
+                    sealed=sealed,
+                ),
+                max_count=max_count,
+                max_bytes=max_bytes,
+            )
+        except QuotaExceeded as error:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+
 @app.post("/v1/documents", response_model=FileOut, status_code=status.HTTP_201_CREATED)
 async def upload_file(
     request: Request,
@@ -425,8 +495,6 @@ async def upload_file(
     kind: str,
     filename: str,
 ) -> FileOut:
-    """Тело запроса — сам файл (application/octet-stream), без multipart:
-    так он не оседает во временных файлах, а читается с жёстким пределом."""
     if user.business_type is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -438,35 +506,52 @@ async def upload_file(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Такого документа нет в наборе вашего бизнеса.",
         )
-    name = clean_filename(filename)
+    stored = await save_upload(
+        request, user, store, cipher,
+        kind=kind,
+        filename=filename,
+        allowed=DOCUMENT_FILES,
+        max_count=settings.max_documents_per_user,
+        max_bytes=settings.max_storage_bytes_per_user,
+    )
+    return file_out(stored)
 
-    async with transfer_slots:
-        content = await read_body(request, settings.max_document_bytes)
-        try:
-            content_type = detect_content_type(name, content)
-        except UnsupportedFile as error:
-            raise HTTPException(
-                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=str(error)
-            ) from error
-        document_id = str(uuid.uuid4())
-        sealed = cipher.seal(content, document_aad(document_id, user.subject))
-        try:
-            stored = await store.add_document(
-                NewDocument(
-                    id=document_id,
-                    owner=user.subject,
-                    kind=kind,
-                    filename=name,
-                    content_type=content_type,
-                    size_bytes=len(content),
-                    sha256=hashlib.sha256(content).hexdigest(),
-                    sealed=sealed,
-                ),
-                max_count=settings.max_documents_per_user,
-                max_bytes=settings.max_storage_bytes_per_user,
-            )
-        except QuotaExceeded as error:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+# --- Хранилище: другие файлы компании ---------------------------------------------
+# Скачать, удалить файл или поделиться им можно теми же адресами
+# /v1/documents/{id}/..., что и документом набора: файл тот же, отличается
+# только kind.
+
+
+@app.get("/v1/storage", response_model=StorageResponse)
+async def list_storage(user: CurrentUser, store: Store, response: Response) -> StorageResponse:
+    response.headers["Cache-Control"] = "no-store"
+    files = await store.list_documents(user.subject, storage=True)
+    return StorageResponse(
+        files=[file_out(file) for file in files],
+        usage=StorageUsageOut(
+            count=len(files),
+            size_bytes=sum(file.size_bytes for file in files),
+            max_size_bytes=settings.storage_quota_bytes,
+            max_file_bytes=settings.max_document_bytes,
+            enforced=settings.storage_quota_enforced,
+        ),
+        extensions=list(STORAGE_FILES.extensions),
+    )
+
+
+@app.post("/v1/storage", response_model=FileOut, status_code=status.HTTP_201_CREATED)
+async def upload_storage_file(
+    request: Request, user: CurrentUser, store: Store, cipher: Cipher, filename: str
+) -> FileOut:
+    stored = await save_upload(
+        request, user, store, cipher,
+        kind=STORAGE_KIND,
+        filename=filename,
+        allowed=STORAGE_FILES,
+        max_count=None,
+        max_bytes=settings.storage_quota_bytes if settings.storage_quota_enforced else None,
+    )
     return file_out(stored)
 
 
