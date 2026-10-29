@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     # Файл целиком лежит в памяти, пока шифруется или расшифровывается, —
     # поэтому одновременных загрузок и скачиваний немного (см. mem_limit).
     max_concurrent_transfers: int = Field(default=2, ge=1, le=16)
+    # Загрузка держит одно из этих мест, пока читается тело. nginx обрывает
+    # только паузу между пакетами (client_body_timeout), поэтому без общего
+    # предела два клиента, присылающих по байту, заняли бы все места надолго.
+    # 20 МБ за три минуты — это около 1 Мбит/с.
+    upload_timeout_seconds: float = Field(default=180, gt=0, le=3600)
     # --- Напоминания о сроках документов по почте ---
     reminders_enabled: bool = True
     reminders_check_minutes: int = Field(default=60, ge=1)

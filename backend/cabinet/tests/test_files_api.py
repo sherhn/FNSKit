@@ -1,8 +1,10 @@
+import asyncio
 import unittest
 from datetime import UTC, datetime, timedelta
 from unittest import mock
 from urllib.parse import quote
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app import main, reminders
@@ -111,6 +113,22 @@ class FilesApiTest(unittest.TestCase):
             response = self.upload(content=PDF)
         self.assertEqual(response.status_code, 413)
         self.assertEqual(self.store.documents, {})
+
+    def test_stalled_upload_is_cut_off(self) -> None:
+        # Клиент присылает начало файла и замолкает: место передачи не должно
+        # оставаться занятым дольше предела на загрузку.
+        class StalledRequest:
+            headers: dict[str, str] = {}
+
+            async def stream(self):
+                yield PDF[:100]
+                await asyncio.sleep(5)
+                yield PDF[100:]
+
+        with mock.patch.object(main.settings, "upload_timeout_seconds", 0.2):
+            with self.assertRaises(HTTPException) as caught:
+                asyncio.run(main.read_body(StalledRequest(), 10**6))
+        self.assertEqual(caught.exception.status_code, 408)
 
     def test_quota(self) -> None:
         with mock.patch.object(main.settings, "max_documents_per_user", 2):

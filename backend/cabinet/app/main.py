@@ -359,10 +359,17 @@ async def read_body(request: Request, limit: int) -> bytes:
     if declared and declared.isdigit() and int(declared) > limit:
         raise too_large
     body = bytearray()
-    async for chunk in request.stream():
-        body += chunk
-        if len(body) > limit:
-            raise too_large
+    try:
+        async with asyncio.timeout(settings.upload_timeout_seconds):
+            async for chunk in request.stream():
+                body += chunk
+                if len(body) > limit:
+                    raise too_large
+    except TimeoutError as error:
+        raise HTTPException(
+            status_code=status.HTTP_408_REQUEST_TIMEOUT,
+            detail="Файл загружался слишком долго. Проверьте соединение и попробуйте снова.",
+        ) from error
     return bytes(body)
 
 
