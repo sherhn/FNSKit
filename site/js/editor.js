@@ -57,10 +57,65 @@
   const profileColor = document.getElementById("profileColor");
   const profileCompression = document.getElementById("profileCompression");
   const customSettings = document.getElementById("customSettings");
+  const customSettingsGrid = document.getElementById("customSettingsGrid");
+  const customSettingsRow2 = document.getElementById("customSettingsRow2");
+  const customPreset = document.getElementById("customPreset");
+  const customFormat = document.getElementById("customFormat");
   const customDpi = document.getElementById("customDpi");
   const customColor = document.getElementById("customColor");
+  const customCompressionLabel = document.getElementById("customCompressionLabel");
   const customCompression = document.getElementById("customCompression");
+  const customQualityContainer = document.getElementById("customQualityContainer");
+  const customQualityBadge = document.getElementById("customQualityBadge");
+  const customQuality = document.getElementById("customQuality");
+  const customTargetMbContainer = document.getElementById("customTargetMbContainer");
+  const customTargetMbBadge = document.getElementById("customTargetMbBadge");
+  const customTargetMb = document.getElementById("customTargetMb");
+  const customThresholdContainer = document.getElementById("customThresholdContainer");
+  const customThresholdValue = document.getElementById("customThresholdValue");
+  const customThreshold = document.getElementById("customThreshold");
+  const thresholdMinus = document.getElementById("thresholdMinus");
+  const thresholdPlus = document.getElementById("thresholdPlus");
   const customSettingsHint = document.getElementById("customSettingsHint");
+  const rotateAllButton = document.getElementById("rotateAllButton");
+
+  const customPresets = {
+    bank: {
+      format: "pdf",
+      dpi: "300",
+      color: "color",
+      compression: "jpeg",
+      quality: "85",
+      targetMb: "15"
+    },
+    fns: {
+      format: "tiff",
+      dpi: "300",
+      color: "bw",
+      compression: "g4",
+      quality: "85",
+      targetMb: "0",
+      threshold: "180"
+    },
+    court: {
+      format: "pdfa",
+      dpi: "300",
+      color: "bw",
+      compression: "jpeg",
+      quality: "85",
+      targetMb: "30",
+      threshold: "180"
+    },
+    registration: {
+      format: "tiff",
+      dpi: "300",
+      color: "bw",
+      compression: "lzw",
+      quality: "85",
+      targetMb: "0",
+      threshold: "180"
+    }
+  };
   const fileInput = document.getElementById("fileInput");
   const dropzone = document.getElementById("dropzone");
   const uploadStatus = document.getElementById("uploadStatus");
@@ -174,7 +229,37 @@
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
+      const handoff = await new Promise((resolve) => {
+        const req = database.transaction(fileStoreName, "readonly").objectStore(fileStoreName).get("check-handoff");
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      });
+      if (handoff?.file instanceof File) {
+        await new Promise((resolve) => {
+          const tx = database.transaction(fileStoreName, "readwrite");
+          tx.objectStore(fileStoreName).delete("check-handoff");
+          tx.oncomplete = resolve;
+          tx.onerror = resolve;
+        });
+      }
       database.close();
+      if (handoff?.file instanceof File) {
+        const targetProfile = profiles[handoff.profile] ? handoff.profile : activeProfile;
+        sourceDocuments = [];
+        editorFiles = [];
+        activeFileId = null;
+        ensureEditorFile();
+        activeFile().profile = targetProfile;
+        if (targetProfile === "vat") {
+          activeFile().outputFormat = handoff.file.name.toLowerCase().endsWith(".pdf") ? "pdf" : "tiff";
+        } else if (targetProfile === "registration") {
+          activeFile().outputFormat = "tiff";
+        }
+        selectProfile(targetProfile);
+        renderEditor();
+        setTimeout(() => addFiles([handoff.file]), 50);
+        return;
+      }
       if ([2, 3, 4].includes(stored?.version) && Array.isArray(stored.files)) {
         sourceDocuments = (stored.sources || []).filter(file => file instanceof File);
         editorFiles = stored.files
@@ -184,9 +269,12 @@
             // В старых сессиях профиль был общим для всего редактора. Оставляем
             // им профиль открытой страницы, а новые вкладки хранят его отдельно.
             const restoredProfile = profiles[file.profile] ? file.profile : activeProfile;
-            const restoredFormat = restoredProfile === "vat" && file.outputFormat === "pdf"
-              ? "pdf"
-              : "tiff";
+            let restoredFormat = "tiff";
+            if (restoredProfile === "custom") {
+              restoredFormat = ["tiff", "pdf", "pdfa", "zip"].includes(file.outputFormat) ? file.outputFormat : "tiff";
+            } else if (restoredProfile === "vat") {
+              restoredFormat = file.outputFormat === "pdf" ? "pdf" : "tiff";
+            }
             return {
               id: typeof file.id === "string" && file.id ? file.id : createEditorFileId(),
               name: typeof file.name === "string" && file.name
@@ -195,7 +283,10 @@
               filenameEdited: Boolean(file.filenameEdited),
               profile: restoredProfile,
               outputFormat: restoredFormat,
-              pages: file.pages.slice(0, maxPagesPerFile)
+              pages: file.pages.slice(0, maxPagesPerFile).map(page => ({
+                ...page,
+                rotation: Number(page.rotation) || 0
+              }))
             };
           });
         if (typeof stored.activeId === "string") activeFileId = stored.activeId;
@@ -207,7 +298,7 @@
         // Самая старая запись: страницы ещё не выделялись из файлов.
         sourceDocuments = stored.files.slice(0, maxPagesPerFile);
         editorFiles = [makeEditorFile(sourceDocuments.map(file => ({
-          id: `${fileKey(file)}:1`, sourceId: fileKey(file), name: file.name, pageNumber: 1, pageTotal: 1, type: "file"
+          id: `${fileKey(file)}:1`, sourceId: fileKey(file), name: file.name, pageNumber: 1, pageTotal: 1, rotation: 0, type: "file"
         })))];
       }
     } catch {
@@ -234,12 +325,18 @@
     return "fnskit-fns-nds";
   }
 
+  function extensionForFormat(outputFormat = "tiff") {
+    if (outputFormat === "pdf" || outputFormat === "pdfa") return "pdf";
+    if (outputFormat === "zip") return "zip";
+    return "tiff";
+  }
+
   function defaultResultFilename(profile, outputFormat = "tiff") {
-    return `${baseResultFilename(profile)}.${outputFormat === "pdf" ? "pdf" : "tiff"}`;
+    return `${baseResultFilename(profile)}.${extensionForFormat(outputFormat)}`;
   }
 
   function uniqueFilename(base, taken, outputFormat = "tiff") {
-    const extension = outputFormat === "pdf" ? "pdf" : "tiff";
+    const extension = extensionForFormat(outputFormat);
     let candidate = `${base}.${extension}`;
     let index = 1;
     while (taken.has(candidate.toLowerCase())) {
@@ -266,12 +363,12 @@
   }
 
   function normalizeResultFilename(value, outputFormat = activeFile().outputFormat, profile = activeFile().profile) {
-    const extension = outputFormat === "pdf" ? "pdf" : "tiff";
+    const extension = extensionForFormat(outputFormat);
     let filename = String(value)
       .trim()
       .replace(/[<>:"\/\\|?*\u0000-\u001F]/g, "-")
       .replace(/[. ]+$/g, "")
-      .replace(/\.(?:tiff?|pdf)$/i, "");
+      .replace(/\.(?:tiff?|pdf|zip)$/i, "");
     if (!filename) filename = baseResultFilename(profile);
     return `${filename}.${extension}`;
   }
@@ -301,16 +398,19 @@
   }
 
   function makeEditorFile(pages = []) {
-    const outputFormat = activeProfile === "vat" && outputFormatSelect?.value === "pdf"
-      ? "pdf"
-      : "tiff";
+    let outputFormat = "tiff";
+    if (activeProfile === "vat" && outputFormatSelect?.value === "pdf") {
+      outputFormat = "pdf";
+    } else if (activeProfile === "custom" && customFormat?.value) {
+      outputFormat = customFormat.value;
+    }
     return {
       id: createEditorFileId(),
       name: uniqueFilename(baseResultFilename(activeProfile), takenFilenames(null), outputFormat),
       filenameEdited: false,
       profile: activeProfile,
       outputFormat,
-      pages
+      pages: pages.map(p => ({ ...p, rotation: Number(p.rotation) || 0 }))
     };
   }
 
@@ -554,10 +654,11 @@
   function requestPagePreview(page) {
     const card = document.querySelector(`[data-preview-id="${encodeURIComponent(page.id)}"]`);
     const preview = card?.querySelector("[data-page-preview]");
+    const transformStyle = page.rotation ? ` style="transform: rotate(${page.rotation}deg); transition: transform 0.2s ease;"` : ' style="transition: transform 0.2s ease;"';
     const cachedSource = previewCache.get(page.id);
     if (cachedSource) {
       if (preview) {
-        preview.innerHTML = `<img src="${cachedSource}" alt="Превью: ${escapeHtml(page.name)}, страница ${page.pageNumber}" draggable="false" />`;
+        preview.innerHTML = `<img src="${cachedSource}" alt="Превью: ${escapeHtml(page.name)}, страница ${page.pageNumber}" draggable="false"${transformStyle} />`;
       }
       const openButton = card?.querySelector('[data-file-action="preview"]');
       if (openButton) openButton.disabled = false;
@@ -569,7 +670,7 @@
         previewCache.set(page.id, source);
         const card = document.querySelector(`[data-preview-id="${encodeURIComponent(page.id)}"]`);
         const preview = card?.querySelector("[data-page-preview]");
-        if (preview) preview.innerHTML = `<img src="${source}" alt="Превью: ${escapeHtml(page.name)}, страница ${page.pageNumber}" draggable="false" />`;
+        if (preview) preview.innerHTML = `<img src="${source}" alt="Превью: ${escapeHtml(page.name)}, страница ${page.pageNumber}" draggable="false"${transformStyle} />`;
         const openButton = card?.querySelector('[data-file-action="preview"]');
         if (openButton) openButton.disabled = false;
       })
@@ -603,6 +704,7 @@
       name: file.name,
       pageNumber: index + 1,
       pageTotal: pageCount,
+      rotation: 0,
       type: extension === "pdf" ? "PDF" : extension === "tif" || extension === "tiff" ? "TIFF" : "Изображение"
     }));
   }
@@ -614,10 +716,14 @@
     const file = activeFile();
     if (file) {
       file.profile = profile;
-      if (profile !== "vat") {
+      if (profile === "registration") {
         file.outputFormat = "tiff";
-        file.name = normalizeResultFilename(file.name, "tiff", profile);
+      } else if (profile === "vat") {
+        file.outputFormat = file.outputFormat === "pdf" ? "pdf" : "tiff";
+      } else if (profile === "custom") {
+        if (customFormat?.value) file.outputFormat = customFormat.value;
       }
+      file.name = normalizeResultFilename(file.name, file.outputFormat, profile);
     }
     profileButtons.forEach(button => {
       button.setAttribute("aria-pressed", String(button.dataset.profile === profile));
@@ -638,23 +744,173 @@
   }
 
   function updateCustomSettings() {
+    if (!customDpi || !customColor || !customCompression) return;
     const dpi = Number.parseInt(customDpi.value, 10);
-    if (customColor.value !== "bw" && customCompression.value === "g4") {
-      customCompression.value = "lzw";
-      customSettingsHint.textContent = "CCITT G4 доступно только для чёрно-белого изображения; выбрано LZW.";
-    } else {
-      customSettingsHint.textContent = "Параметры будут применены ко всем страницам.";
+    const color = customColor.value;
+    const format = customFormat ? customFormat.value : (activeFile().outputFormat || "tiff");
+    activeFile().outputFormat = format;
+
+    const isBw = color === "bw";
+    const isTiff = format === "tiff";
+    const isPdf = format === "pdf" || format === "pdfa";
+    const isZip = format === "zip";
+
+    const g4Option = customCompression.querySelector('option[value="g4"]');
+    const lzwOption = customCompression.querySelector('option[value="lzw"]');
+    const deflateOption = customCompression.querySelector('option[value="deflate"]');
+    const jpegOption = customCompression.querySelector('option[value="jpeg"]');
+
+    if (customCompressionLabel) customCompressionLabel.classList.remove("opacity-50");
+
+    if (isTiff) {
+      customCompression.disabled = false;
+
+      if (g4Option) {
+        g4Option.disabled = !isBw;
+        g4Option.textContent = "CCITT G4 (только ч/б)";
+      }
+      if (lzwOption) {
+        lzwOption.disabled = false;
+        lzwOption.textContent = "LZW (без потерь)";
+      }
+      if (deflateOption) {
+        deflateOption.disabled = false;
+        deflateOption.textContent = "Deflate / ZIP (без потерь)";
+      }
+      if (jpegOption) {
+        jpegOption.disabled = isBw;
+        jpegOption.textContent = isBw ? "JPEG (недоступно для ч/б TIFF)" : "JPEG (для цвета и фото)";
+      }
+
+      if (!isBw && customCompression.value === "g4") {
+        customCompression.value = "lzw";
+        customSettingsHint.textContent = "CCITT G4 доступно только для чёрно-белого TIFF; переключено на LZW.";
+      } else if (isBw && customCompression.value === "jpeg") {
+        customCompression.value = "g4";
+        customSettingsHint.textContent = "Сжатие JPEG недоступно для 1-битного ч/б TIFF; выбрано CCITT G4.";
+      } else {
+        customSettingsHint.textContent = "Параметры будут применены ко всем страницам итогового документа.";
+      }
+    } else if (isPdf) {
+      customCompression.disabled = false;
+
+      if (g4Option) {
+        g4Option.disabled = true;
+        g4Option.textContent = "CCITT G4 (только для TIFF)";
+      }
+      if (lzwOption) {
+        lzwOption.disabled = true;
+        lzwOption.textContent = "LZW (только для TIFF)";
+      }
+      if (deflateOption) {
+        deflateOption.disabled = true;
+        deflateOption.textContent = "Deflate (только для TIFF/ZIP)";
+      }
+      if (jpegOption) {
+        jpegOption.disabled = false;
+        jpegOption.textContent = "JPEG (стандарт для PDF)";
+      }
+
+      if (customCompression.value !== "jpeg") {
+        customCompression.value = "jpeg";
+      }
+      customSettingsHint.textContent = "Для PDF используется сжатие JPEG. Качество регулируется блоком ниже.";
+    } else if (isZip) {
+      customCompression.disabled = false;
+
+      if (g4Option) {
+        g4Option.disabled = true;
+        g4Option.textContent = "CCITT G4 (только для TIFF)";
+      }
+      if (lzwOption) {
+        lzwOption.disabled = true;
+        lzwOption.textContent = "LZW (только для TIFF)";
+      }
+      if (deflateOption) {
+        deflateOption.disabled = false;
+        deflateOption.textContent = "Deflate (архив ZIP)";
+      }
+      if (jpegOption) {
+        jpegOption.disabled = true;
+        jpegOption.textContent = "JPEG (для PDF и TIFF)";
+      }
+
+      if (customCompression.value !== "deflate") {
+        customCompression.value = "deflate";
+      }
+      customSettingsHint.textContent = "Страницы упаковываются в ZIP-архив со сжатием Deflate.";
     }
+
+    // 1. Порог бинаризации (Threshold) - зависит от Цветового режима, скрывается если не ч/б
+    if (customThresholdContainer) {
+      customThresholdContainer.classList.toggle("hidden", !isBw);
+      if (customThreshold) customThreshold.disabled = !isBw;
+      if (thresholdMinus) thresholdMinus.disabled = !isBw;
+      if (thresholdPlus) thresholdPlus.disabled = !isBw;
+      if (isBw) {
+        const val = Number(customThreshold?.value) || 180;
+        let note = "Оптимально";
+        if (val < 140) note = "Светлее";
+        else if (val > 200) note = "Плотнее";
+        if (customThresholdValue) customThresholdValue.textContent = `${val} · ${note}`;
+      }
+    }
+
+    // 2. Качество сжатия (Quality) - зависит от Сжатия и Формата, скрывается если не JPEG
+    const showsQuality = isPdf || (isTiff && customCompression.value === "jpeg") || (isZip && !isBw);
+    if (customQuality && (!customQuality.value || !["92", "85", "75", "65"].includes(customQuality.value))) {
+      customQuality.value = "85";
+    }
+
+    if (customQualityContainer) {
+      customQualityContainer.classList.toggle("hidden", !showsQuality);
+      if (customQuality) customQuality.disabled = !showsQuality;
+      if (showsQuality && customQualityBadge) {
+        const qVal = customQuality?.value || "85";
+        const qualityLabels = {
+          "92": "92% · Максимум",
+          "85": "85% · Оптимально",
+          "75": "75% · Компакт",
+          "65": "65% · Сжатие"
+        };
+        customQualityBadge.textContent = qualityLabels[qVal] || `${qVal}%`;
+      }
+    }
+
+    const gridTarget = customSettingsGrid || customSettingsRow2;
+    if (gridTarget) {
+      const fieldCount = 2 + (isBw ? 1 : 0) + (showsQuality ? 1 : 0);
+      gridTarget.dataset.fields = String(fieldCount);
+    }
+
+    // 3. Лимит размера файла (Target MB)
+    if (customTargetMbContainer) {
+      customTargetMbContainer.classList.remove("hidden", "opacity-50", "pointer-events-none");
+      if (customTargetMb) customTargetMb.disabled = false;
+      if (customTargetMbBadge) {
+        const mb = customTargetMb?.value || "0";
+        customTargetMbBadge.textContent = mb === "0" ? "Без лимита" : `до ${mb} МБ`;
+      }
+    }
+
     const colors = {
       bw: { label: "Ч/б", badge: "1 бит · Ч/б" },
-      gray: { label: "Серый", badge: "8 бит · Серый" }
+      gray: { label: "Серый", badge: "8 бит · Серый" },
+      color: { label: "Цветной", badge: "24 бита · RGB" }
     };
-    const compressions = { lzw: "LZW", deflate: "Deflate", g4: "CCITT G4" };
+    const compressions = { lzw: "LZW", deflate: "Deflate", g4: "CCITT G4", jpeg: "JPEG" };
+    const formatLabels = { tiff: "TIFF", pdf: "PDF", pdfa: "PDF/A", zip: "ZIP" };
+
+    profiles.custom.title = `Кастомный ${formatLabels[format] || "файл"}`;
     profiles.custom.dpi = `${dpi} DPI`;
-    profiles.custom.color = colors[customColor.value].label;
-    profiles.custom.badge = colors[customColor.value].badge;
-    profiles.custom.compression = compressions[customCompression.value];
+    profiles.custom.color = colors[color] ? colors[color].label : "Серый";
+    profiles.custom.badge = colors[color] ? colors[color].badge : "8 бит · Серый";
+    profiles.custom.compression = format === "tiff"
+      ? (compressions[customCompression.value] || "LZW")
+      : (format === "zip" ? (color === "bw" ? "PNG" : "JPEG") : `JPEG · ${customQuality?.value || 85}%`);
+
     if (activeProfile === "custom") {
+      profileTitle.textContent = profiles.custom.title;
       profileDpi.textContent = profiles.custom.dpi;
       profileColor.textContent = profiles.custom.color;
       profileBadge.textContent = profiles.custom.badge;
@@ -739,19 +995,37 @@
 
   function syncOutputControls() {
     const file = activeFile();
-    const format = file.profile === "vat" && file.outputFormat === "pdf" ? "pdf" : "tiff";
-    const label = format === "pdf" ? "PDF" : "TIFF";
+    let format = file.outputFormat || "tiff";
+    if (file.profile === "registration") {
+      format = "tiff";
+    } else if (file.profile === "vat") {
+      format = format === "pdf" ? "pdf" : "tiff";
+    }
     file.outputFormat = format;
+    const formatLabels = { tiff: "TIFF", pdf: "PDF", pdfa: "PDF/A", zip: "ZIP" };
+    const label = formatLabels[format] || "TIFF";
+    const extension = extensionForFormat(format);
+
     if (outputFormatSelect) {
-      outputFormatSelect.value = format;
+      outputFormatSelect.value = format === "pdfa" ? "pdf" : format;
       outputFormatSelect.disabled = isProcessing || isReadingFiles;
     }
-    if (outputFormatHint) {
-      outputFormatHint.textContent = format === "pdf"
-        ? "Многостраничный image-only PDF до 100 МБ: 300 DPI, 8-битный серый цвет, без ссылок, форм и вложений."
-        : "Многостраничный TIFF: 300 DPI, 8-битный серый цвет, сжатие LZW.";
+    if (customFormat) {
+      customFormat.value = format;
+      customFormat.disabled = isProcessing || isReadingFiles;
     }
-    resultFilenameHint.textContent = `Так назовётся ${label} активной вкладки. Расширение .${format === "pdf" ? "pdf" : "tiff"} добавится автоматически`;
+    if (outputFormatHint) {
+      if (format === "pdf") {
+        outputFormatHint.textContent = "Многостраничный image-only PDF до 100 МБ: 300 DPI, 8-битный серый цвет, без ссылок, форм и вложений.";
+      } else if (format === "pdfa") {
+        outputFormatHint.textContent = "Архивный PDF/A-1b с метаданными для судов и долгосрочного хранения.";
+      } else if (format === "zip") {
+        outputFormatHint.textContent = "ZIP-архив с постраничными изображениями (JPG / PNG).";
+      } else {
+        outputFormatHint.textContent = "Многостраничный TIFF: 300 DPI, 8-битный серый цвет, сжатие LZW.";
+      }
+    }
+    resultFilenameHint.textContent = `Так назовётся ${label} активной вкладки. Расширение .${extension} добавится автоматически`;
     createButtonLabel.textContent = `Скачать ${label}`;
     if (!isProcessing) confirmCreateButton.textContent = `Скачать ${label}`;
     if (file.profile === "vat") {
@@ -782,6 +1056,7 @@
         <div class="page-preview page-preview--empty relative grid overflow-hidden rounded-xl border border-ink/10 bg-paper">
           <div data-page-preview class="grid h-full w-full place-items-center text-center"><span class="h-6 w-6 animate-spin rounded-full border-2 border-violet/20 border-t-violet"></span></div>
           <span data-page-position class="absolute left-2 top-2 grid h-7 min-w-7 place-items-center rounded-lg bg-ink px-1.5 text-[10px] font-extrabold text-lime shadow-card">${index + 1}</span>
+          ${page.rotation ? `<span data-page-rotation class="absolute top-2 left-10 rounded-md bg-violet px-1.5 py-0.5 text-[9px] font-extrabold text-white shadow-sm">${page.rotation}°</span>` : ""}
           <button type="button" data-file-action="preview" disabled aria-label="Увеличить страницу" class="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-lg bg-white/90 text-ink shadow-card transition hover:bg-violet hover:text-white disabled:cursor-wait disabled:opacity-45">
             <svg viewBox="0 0 24 24" class="h-4 w-4" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m15 15 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           </button>
@@ -795,8 +1070,9 @@
             <span>из <span data-page-count>${pages.length}</span></span>
           </label>
           <div class="mt-2 flex items-center justify-between gap-1">
-            <span class="text-[10px] font-bold text-ink/30" aria-hidden="true">⠿ Переместить</span>
-            <span class="flex items-center gap-1">
+            <span class="text-[10px] font-bold text-ink/30 whitespace-nowrap select-none" aria-hidden="true">⠿ Переместить</span>
+            <span class="flex items-center gap-1 flex-shrink-0">
+              <button type="button" data-file-action="rotate" title="Повернуть на 90°" aria-label="Повернуть страницу на 90 градусов" class="grid h-7 w-7 place-items-center rounded-md border border-ink/10 text-xs font-bold transition hover:border-violet hover:bg-paper hover:text-violet">↻</button>
               <button type="button" data-file-action="up" aria-label="Переместить страницу выше" class="grid h-7 w-7 place-items-center rounded-md border border-ink/10 text-xs font-bold transition hover:bg-paper disabled:opacity-20" ${index === 0 ? "disabled" : ""}>↑</button>
               <button type="button" data-file-action="down" aria-label="Переместить страницу ниже" class="grid h-7 w-7 place-items-center rounded-md border border-ink/10 text-xs font-bold transition hover:bg-paper disabled:opacity-20" ${index === pages.length - 1 ? "disabled" : ""}>↓</button>
               <button type="button" data-file-action="remove" aria-label="Удалить страницу" class="grid h-7 w-7 place-items-center rounded-md border border-ink/10 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700">
@@ -958,7 +1234,8 @@
     const sourceIndexes = new Map(uploads.map((file, index) => [fileKey(file), index]));
     return activePages().map(page => ({
       source_index: sourceIndexes.get(page.sourceId),
-      page_number: page.pageNumber
+      page_number: page.pageNumber,
+      rotation: page.rotation || 0
     }));
   }
 
@@ -1028,9 +1305,15 @@
 
   // Собирается только активная вкладка: один запрос — один итоговый файл.
   async function createDocument() {
-    const outputFormat = activeFile().outputFormat === "pdf" ? "pdf" : "tiff";
-    const formatLabel = outputFormat === "pdf" ? "PDF" : "TIFF";
     const target = activeFile();
+    let outputFormat = target.outputFormat || "tiff";
+    if (target.profile === "registration") {
+      outputFormat = "tiff";
+    } else if (target.profile === "vat") {
+      outputFormat = outputFormat === "pdf" ? "pdf" : "tiff";
+    }
+    const formatLabels = { tiff: "TIFF", pdf: "PDF", pdfa: "PDF/A", zip: "ZIP" };
+    const formatLabel = formatLabels[outputFormat] || "TIFF";
     const uploads = activeSourceFiles();
     const pageOrder = pageOrderFor(uploads);
     if (!pageOrder.length || pageOrder.some(page => page.source_index === undefined)) {
@@ -1044,6 +1327,19 @@
       formData.append("dpi", customDpi.value);
       formData.append("color_mode", customColor.value);
       formData.append("compression", customCompression.value);
+      const isPdf = outputFormat === "pdf" || outputFormat === "pdfa";
+      const isZip = outputFormat === "zip";
+      const isTiff = outputFormat === "tiff";
+      const showsQuality = isPdf || (isTiff && customCompression.value === "jpeg") || (isZip && customColor.value !== "bw");
+      if (showsQuality && customQuality && customQuality.value) {
+        formData.append("quality", customQuality.value);
+      }
+      if (customTargetMb && customTargetMb.value !== "0") {
+        formData.append("target_max_mb", customTargetMb.value);
+      }
+      if (customColor.value === "bw" && customThreshold && customThreshold.value) {
+        formData.append("threshold", customThreshold.value);
+      }
     }
     formData.append("page_order", JSON.stringify(pageOrder));
     formData.append("personal_data_consent", String(consentCheckbox.checked));
@@ -1173,6 +1469,7 @@
   const requestedProfile = document.documentElement.dataset.profile || new URLSearchParams(window.location.search).get("profile");
   ensureEditorFile();
   selectProfile(profiles[requestedProfile] ? requestedProfile : "vat");
+  if (activeProfile === "custom") updateCustomSettings();
   renderEditor();
   profileButtons.forEach(button => button.addEventListener("click", async () => {
     const profile = button.dataset.profile;
@@ -1181,7 +1478,75 @@
     await saveEditorState();
     window.location.href = profilePages[profile];
   }));
-  [customDpi, customColor, customCompression].forEach(control => control.addEventListener("change", updateCustomSettings));
+  if (customThreshold) {
+    customThreshold.addEventListener("input", () => {
+      const val = Number(customThreshold.value) || 180;
+      let note = "Оптимально";
+      if (val < 140) note = "Светлее";
+      else if (val > 200) note = "Плотнее";
+      if (customThresholdValue) customThresholdValue.textContent = `${val} · ${note}`;
+    });
+    customThreshold.addEventListener("change", async () => {
+      if (customPreset) customPreset.value = "manual";
+      await saveEditorState();
+    });
+  }
+
+  thresholdMinus?.addEventListener("click", () => {
+    if (customThreshold && !customThreshold.disabled) {
+      const current = Number(customThreshold.value) || 180;
+      const next = Math.max(100, current - 5);
+      customThreshold.value = String(next);
+      customThreshold.dispatchEvent(new Event("input"));
+      customThreshold.dispatchEvent(new Event("change"));
+    }
+  });
+
+  thresholdPlus?.addEventListener("click", () => {
+    if (customThreshold && !customThreshold.disabled) {
+      const current = Number(customThreshold.value) || 180;
+      const next = Math.min(220, current + 5);
+      customThreshold.value = String(next);
+      customThreshold.dispatchEvent(new Event("input"));
+      customThreshold.dispatchEvent(new Event("change"));
+    }
+  });
+
+  customPreset?.addEventListener("change", async () => {
+    const presetKey = customPreset.value;
+    if (presetKey === "manual") return;
+    const p = customPresets[presetKey];
+    if (!p) return;
+    if (customFormat) customFormat.value = p.format;
+    if (customDpi) customDpi.value = p.dpi;
+    if (customColor) customColor.value = p.color;
+    if (customCompression) customCompression.value = p.compression;
+    if (customQuality) customQuality.value = p.quality || "85";
+    if (customTargetMb) customTargetMb.value = p.targetMb || "0";
+    if (p.threshold && customThreshold) {
+      customThreshold.value = p.threshold;
+    }
+    const file = activeFile();
+    file.outputFormat = p.format;
+    file.name = normalizeResultFilename(file.name, file.outputFormat, file.profile);
+    updateCustomSettings();
+    renderEditor();
+    await saveEditorState();
+  });
+
+  [customFormat, customDpi, customColor, customCompression, customQuality, customTargetMb].forEach(el => {
+    el?.addEventListener("change", async () => {
+      if (customPreset) customPreset.value = "manual";
+      if (el === customFormat) {
+        const file = activeFile();
+        file.outputFormat = customFormat.value;
+        file.name = normalizeResultFilename(file.name, file.outputFormat, file.profile);
+      }
+      updateCustomSettings();
+      renderEditor();
+      await saveEditorState();
+    });
+  });
 
   fileTabs.addEventListener("click", async event => {
     const holder = event.target.closest("[data-tab-id]");
@@ -1253,6 +1618,27 @@
     const pages = activePages();
     const index = Number(row.dataset.fileIndex);
     const action = button.dataset.fileAction;
+    if (action === "rotate") {
+      const page = pages[index];
+      if (!page) return;
+      page.rotation = ((page.rotation || 0) + 90) % 360;
+      const img = row.querySelector("[data-page-preview] img");
+      if (img) img.style.transform = `rotate(${page.rotation}deg)`;
+      let badge = row.querySelector("[data-page-rotation]");
+      if (page.rotation) {
+        if (!badge) {
+          badge = document.createElement("span");
+          badge.dataset.pageRotation = "";
+          badge.className = "absolute top-2 left-10 rounded-md bg-violet px-1.5 py-0.5 text-[9px] font-extrabold text-white shadow-sm";
+          row.querySelector(".page-preview").append(badge);
+        }
+        badge.textContent = `${page.rotation}°`;
+      } else if (badge) {
+        badge.remove();
+      }
+      await saveEditorState();
+      return;
+    }
     if (action === "preview") {
       openPagePreview(index);
       return;
@@ -1385,6 +1771,17 @@
       pages.splice(insertionIndex, 0, page);
     }
     syncPageCardOrder();
+    await saveEditorState();
+  });
+
+  rotateAllButton?.addEventListener("click", async () => {
+    await filesRestored;
+    const pages = activePages();
+    if (!pages.length) return;
+    pages.forEach(page => {
+      page.rotation = ((page.rotation || 0) + 90) % 360;
+    });
+    renderFiles();
     await saveEditorState();
   });
 

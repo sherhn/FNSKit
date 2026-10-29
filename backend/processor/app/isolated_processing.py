@@ -200,7 +200,8 @@ async def process_documents_isolated(
             raise ProcessingError(
                 "Обработчик документа вернул некорректный результат."
             ) from error
-        expected_path = work_directory / f"result.{output_format.value}"
+        ext = "pdf" if output_format in (OutputFormat.PDF, OutputFormat.PDFA) else output_format.value
+        expected_path = work_directory / f"result.{ext}"
         if result.output_path != expected_path:
             raise ProcessingError("Обработчик документа вернул некорректный путь результата.")
         if not result.output_path.is_file():
