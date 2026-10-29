@@ -60,13 +60,27 @@ def _tiff_compression_name(tag_value: int | None) -> str:
             return f"Код {tag_value}" if tag_value else "Не указано"
 
 
-def _inspect_tiff(path: Path) -> tuple[list[PageInspection], dict[str, any]]:
+def _too_many_pages(max_pages: int) -> ProcessingError:
+    return ProcessingError(f"В файле больше {max_pages} страниц — столько за раз не проверить.")
+
+
+def _inspect_tiff(path: Path, max_pages: int) -> tuple[list[PageInspection], dict[str, any]]:
     pages: list[PageInspection] = []
     metadata: dict[str, any] = {"compression_tags": set(), "color_modes": set()}
 
     try:
-        with Image.open(path) as img:
-            n_frames = getattr(img, "n_frames", 1)
+        with Image.open(path, formats=["TIFF"]) as img:
+            # Кадры считаем сами и с потолком: n_frames прошёл бы всю цепочку
+            # IFD, а в 100 МБ помещаются миллионы крошечных кадров.
+            n_frames = 0
+            while True:
+                if n_frames >= max_pages:
+                    raise _too_many_pages(max_pages)
+                n_frames += 1
+                try:
+                    img.seek(n_frames)
+                except EOFError:
+                    break
             for idx in range(n_frames):
                 img.seek(idx)
                 raw_dpi = img.info.get("dpi")
@@ -126,20 +140,28 @@ def _inspect_tiff(path: Path) -> tuple[list[PageInspection], dict[str, any]]:
                         issues=[],
                     )
                 )
+    except ProcessingError:
+        raise
     except UnidentifiedImageError as err:
         raise ProcessingError("Повреждённый файл TIFF или неизвестный формат.") from err
     except Exception as err:
-        raise ProcessingError(f"Ошибка при разборе TIFF: {err}") from err
+        # Текст исключения парсера наружу не отдаём: в нём бывают пути и
+        # внутренности библиотек. Подробности — в журнале процесса проверки.
+        raise ProcessingError("Не удалось разобрать TIFF: файл повреждён или записан в неподдерживаемом варианте.") from err
 
     return pages, metadata
 
 
-def _inspect_pdf(path: Path) -> tuple[list[PageInspection], dict[str, any]]:
+def _inspect_pdf(path: Path, max_pages: int) -> tuple[list[PageInspection], dict[str, any]]:
     pages: list[PageInspection] = []
     metadata: dict[str, any] = {"compression_names": set(), "is_pdfa": False}
 
     try:
-        with fitz.open(path) as doc:
+        with fitz.open(path, filetype="pdf") as doc:
+            if doc.needs_pass:
+                raise ProcessingError("PDF защищён паролем — снимите защиту и проверьте снова.")
+            if doc.page_count > max_pages:
+                raise _too_many_pages(max_pages)
             meta_xml = doc.get_xml_metadata() or ""
             if "pdfaid:part" in meta_xml or "GTS_PDFA1" in meta_xml:
                 metadata["is_pdfa"] = True
@@ -211,8 +233,10 @@ def _inspect_pdf(path: Path) -> tuple[list[PageInspection], dict[str, any]]:
                         issues=[],
                     )
                 )
+    except ProcessingError:
+        raise
     except Exception as err:
-        raise ProcessingError(f"Ошибка при разборе PDF: {err}") from err
+        raise ProcessingError("Не удалось разобрать PDF: файл повреждён или записан в неподдерживаемом варианте.") from err
 
     return pages, metadata
 
@@ -227,15 +251,18 @@ def inspect_document(
     custom_compression: str | None = None,
     custom_format: str | None = None,
     custom_target_mb: int | None = None,
+    max_pages: int = 1000,
 ) -> InspectionReport:
     file_size = path.stat().st_size
     file_size_formatted = _format_size(file_size)
     detected_format = _detect_format(path)
 
     if detected_format == "tiff":
-        raw_pages, metadata = _inspect_tiff(path)
+        raw_pages, metadata = _inspect_tiff(path, max_pages)
     else:
-        raw_pages, metadata = _inspect_pdf(path)
+        raw_pages, metadata = _inspect_pdf(path, max_pages)
+    if not raw_pages:
+        raise ProcessingError("В файле нет ни одной страницы.")
 
     checks: list[CheckItem] = []
     evaluated_pages: list[PageInspection] = []

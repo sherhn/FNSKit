@@ -25,8 +25,7 @@ from app.contracts import (
     ProcessingResult,
     Profile,
 )
-from app.inspector import inspect_document
-from app.isolated_processing import process_documents_isolated
+from app.isolated_processing import inspect_document_isolated, process_documents_isolated
 from app.ratelimit import build_limiter, rate_limit_handler
 from app.workspace import (
     StagingBudgetExceeded,
@@ -356,13 +355,11 @@ def parse_document_request(
     )
 
 
-async def run_processing(
-    work_directory: Path,
-    files: list[StarletteUploadFile],
-    document: DocumentRequest,
-) -> ProcessingResult:
-    """Принять загрузки, дождаться места под обработку и собрать результат."""
-    source_paths = await stage_uploads(files, work_directory)
+@asynccontextmanager
+async def processing_slot() -> AsyncIterator[None]:
+    """Место в очереди на разбор файлов: одноразовый процесс-разборщик держит
+    в памяти страницу, поэтому одновременно их не больше MAX_CONCURRENT_JOBS —
+    и сборка, и проверка готового файла стоят в одной очереди."""
     try:
         await asyncio.wait_for(
             processing_semaphore.acquire(),
@@ -374,6 +371,19 @@ async def run_processing(
             detail="Сервис сейчас занят обработкой других документов. Попробуйте через несколько минут.",
         ) from error
     try:
+        yield
+    finally:
+        processing_semaphore.release()
+
+
+async def run_processing(
+    work_directory: Path,
+    files: list[StarletteUploadFile],
+    document: DocumentRequest,
+) -> ProcessingResult:
+    """Принять загрузки, дождаться места под обработку и собрать результат."""
+    source_paths = await stage_uploads(files, work_directory)
+    async with processing_slot():
         return await process_documents_isolated(
             source_paths,
             work_directory,
@@ -386,8 +396,6 @@ async def run_processing(
             document.output_format,
             timeout_seconds=settings.processing_timeout_seconds,
         )
-    finally:
-        processing_semaphore.release()
 
 
 @asynccontextmanager
@@ -417,6 +425,16 @@ def form_text(form: FormData, name: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def form_int(form: FormData, name: str) -> int | None:
+    """Целое из поля формы; мусор — как отсутствие значения. str.isdigit()
+    тут не годится: он пропускает «²», на котором int() падает."""
+    raw = form_text(form, name)
+    try:
+        return int(raw) if raw else None
+    except ValueError:
+        return None
+
+
 def require_personal_data_consent(form: FormData) -> None:
     """Без отметки о согласии и без точной версии его текста файл не готовится.
 
@@ -434,41 +452,17 @@ def require_personal_data_consent(form: FormData) -> None:
 
 def parse_document_form(form: FormData) -> tuple[DocumentRequest, list[StarletteUploadFile]]:
     """Параметры и файлы запроса из уже принятой формы."""
-    raw_dpi = form_text(form, "dpi")
-    try:
-        dpi = int(raw_dpi) if raw_dpi else None
-    except ValueError:
-        dpi = None
-
-    raw_quality = form_text(form, "quality")
-    try:
-        quality = int(raw_quality) if raw_quality else None
-    except ValueError:
-        quality = None
-
-    raw_target_mb = form_text(form, "target_max_mb")
-    try:
-        target_max_mb = int(raw_target_mb) if raw_target_mb else None
-    except ValueError:
-        target_max_mb = None
-
-    raw_threshold = form_text(form, "threshold")
-    try:
-        threshold = int(raw_threshold) if raw_threshold else None
-    except ValueError:
-        threshold = None
-
     output_format = form_text(form, "output_format")
     document = parse_document_request(
         form_text(form, "profile") or "",
         OutputFormat.TIFF.value if output_format is None else output_format,
-        dpi,
+        form_int(form, "dpi"),
         form_text(form, "color_mode"),
         form_text(form, "compression"),
         form_text(form, "page_order"),
-        quality=quality,
-        target_max_mb=target_max_mb,
-        threshold=threshold,
+        quality=form_int(form, "quality"),
+        target_max_mb=form_int(form, "target_max_mb"),
+        threshold=form_int(form, "threshold"),
     )
     files = [part for part in form.getlist("files") if isinstance(part, StarletteUploadFile)]
     return document, files
@@ -646,13 +640,13 @@ async def inspect_uploaded_document(request: Request) -> JSONResponse:
                     detail="Профиль должен быть vat, registration или custom.",
                 ) from err
 
-            raw_dpi = form_text(form, "dpi")
-            custom_dpi = int(raw_dpi) if raw_dpi and raw_dpi.isdigit() else None
-            custom_color = form_text(form, "color_mode")
-            custom_compression = form_text(form, "compression")
-            custom_format = form_text(form, "custom_format") or form_text(form, "output_format")
-            raw_target_mb = form_text(form, "target_max_mb")
-            custom_target_mb = int(raw_target_mb) if raw_target_mb and raw_target_mb.isdigit() else None
+            custom = {
+                "custom_dpi": form_int(form, "dpi"),
+                "custom_color": form_text(form, "color_mode"),
+                "custom_compression": form_text(form, "compression"),
+                "custom_format": form_text(form, "custom_format") or form_text(form, "output_format"),
+                "custom_target_mb": form_int(form, "target_max_mb"),
+            }
 
             file_part = form.get("file")
             if not isinstance(file_part, StarletteUploadFile):
@@ -698,18 +692,18 @@ async def inspect_uploaded_document(request: Request) -> JSONResponse:
                     out.write(chunk)
             await file_part.close()
 
-            report = await run_in_threadpool(
-                inspect_document,
-                file_path,
-                original_filename,
-                profile,
-                custom_dpi=custom_dpi,
-                custom_color=custom_color,
-                custom_compression=custom_compression,
-                custom_format=custom_format,
-                custom_target_mb=custom_target_mb,
-            )
-            return JSONResponse(content=report.to_dict())
+            # Разбор недоверенного файла — только в одноразовом процессе и в
+            # общей очереди со сборкой, как и в /v1/tiff.
+            async with processing_slot():
+                report = await inspect_document_isolated(
+                    file_path,
+                    original_filename,
+                    profile,
+                    settings.max_inspect_pages,
+                    custom,
+                    timeout_seconds=settings.processing_timeout_seconds,
+                )
+            return JSONResponse(content=report)
     except ProcessingError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

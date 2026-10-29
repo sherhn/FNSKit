@@ -171,3 +171,74 @@ class InspectorTests(unittest.TestCase):
         check_dict = {c["id"]: c for c in data["checks"]}
         self.assertEqual(check_dict["dpi"]["status"], "success")
         self.assertEqual(check_dict["color"]["status"], "success")
+
+
+def _post(client: TestClient, name: str, content: bytes, profile: str = "vat"):
+    return client.post(
+        "/v1/inspect",
+        data={"profile": profile, **CONSENT},
+        files={"file": (name, content, "application/octet-stream")},
+    )
+
+
+class InspectorSafetyTests(unittest.TestCase):
+    """Проверка разбирает недоверенные файлы: только в одноразовом процессе,
+    с потолком страниц и без внутренностей парсеров в ответе."""
+
+    def test_inspection_runs_in_disposable_process(self) -> None:
+        calls = []
+        real = main.inspect_document_isolated
+
+        async def spy(*args, **kwargs):
+            calls.append(kwargs.get("timeout_seconds"))
+            return await real(*args, **kwargs)
+
+        main.inspect_document_isolated = spy
+        self.addCleanup(setattr, main, "inspect_document_isolated", real)
+        with TestClient(main.app) as client:
+            resp = _post(client, "doc.tiff", _make_tiff())
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(calls, [main.settings.processing_timeout_seconds])
+
+    def test_too_many_tiff_frames_are_refused(self) -> None:
+        buf = io.BytesIO()
+        frames = [Image.new("L", (4, 4), 255) for _ in range(6)]
+        frames[0].save(buf, format="TIFF", save_all=True, append_images=frames[1:])
+        limit = main.settings.max_inspect_pages
+        main.settings.max_inspect_pages = 5
+        self.addCleanup(setattr, main.settings, "max_inspect_pages", limit)
+        with TestClient(main.app) as client:
+            resp = _post(client, "many.tiff", buf.getvalue())
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("больше 5 страниц", resp.json()["detail"])
+
+    def test_too_many_pdf_pages_are_refused(self) -> None:
+        limit = main.settings.max_inspect_pages
+        main.settings.max_inspect_pages = 2
+        self.addCleanup(setattr, main.settings, "max_inspect_pages", limit)
+        with TestClient(main.app) as client:
+            resp = _post(client, "many.pdf", _make_pdf(pages=3))
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("больше 2 страниц", resp.json()["detail"])
+
+    def test_broken_file_does_not_leak_parser_details(self) -> None:
+        broken_tiff = b"II*\x00" + b"\xff" * 64
+        broken_pdf = b"%PDF-1.7\n" + b"\x00garbage" * 32
+        with TestClient(main.app) as client:
+            for name, content in (("broken.tiff", broken_tiff), ("broken.pdf", broken_pdf)):
+                resp = _post(client, name, content)
+                self.assertEqual(resp.status_code, 422, resp.text)
+                detail = resp.json()["detail"]
+                self.assertIsInstance(detail, str)
+                self.assertNotIn("/tmp", detail)
+                self.assertNotIn("fnskit-", detail)
+                self.assertNotIn("Error", detail)
+
+    def test_odd_numeric_fields_do_not_crash(self) -> None:
+        with TestClient(main.app) as client:
+            resp = client.post(
+                "/v1/inspect",
+                data={"profile": "custom", "dpi": "²", "target_max_mb": "٣x", **CONSENT},
+                files={"file": ("doc.tiff", _make_tiff(), "image/tiff")},
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
