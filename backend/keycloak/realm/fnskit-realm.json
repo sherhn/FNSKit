@@ -84,9 +84,9 @@
       "frontchannelLogout": true,
       "consentRequired": false,
       "rootUrl": "${FNSKIT_SITE_URL}",
-      "baseUrl": "/kabinet",
+      "baseUrl": "/account",
       "redirectUris": [
-        "${FNSKIT_SITE_URL}/kabinet",
+        "${FNSKIT_SITE_URL}/account",
         "${FNSKIT_SITE_URL}/silent-check-sso"
       ],
       "webOrigins": [
@@ -94,7 +94,7 @@
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "${FNSKIT_SITE_URL}/kabinet",
+        "post.logout.redirect.uris": "${FNSKIT_SITE_URL}/account",
         "oauth2.device.authorization.grant.enabled": "false",
         "use.refresh.tokens": "true"
       },
