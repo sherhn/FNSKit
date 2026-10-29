@@ -177,6 +177,47 @@ services:
       - no-new-privileges:true
     cap_drop: [ALL]
 
+  # Только для локальной разработки: S3-совместимое хранилище для файлов
+  # кабинета. RustFS, а не MinIO: MinIO больше не публикует образы. В
+  # продакшене вместо него — настоящий S3, адрес и ключи задаются
+  # переменными CABINET_S3_*. Консоль — http://localhost:9001, API для
+  # отладки и живых тестов — http://localhost:9000.
+  s3:
+    image: rustfs/rustfs:1.0.4@sha256:ed9210d6411d77ffceb70d94b964a3cb7d225983368bc25bebe01e995293dcc2
+    environment:
+      RUSTFS_ACCESS_KEY: ${CABINET_S3_ACCESS_KEY:?Задайте CABINET_S3_ACCESS_KEY в .env}
+      RUSTFS_SECRET_KEY: ${CABINET_S3_SECRET_KEY:?Задайте CABINET_S3_SECRET_KEY в .env}
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_CONSOLE_ADDRESS: ":9001"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    # backend — от кабинета; default — ради портов на localhost.
+    networks:
+      - backend
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1:9000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    cpus: 0.5
+    mem_limit: 256m
+    pids_limit: 128
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,uid=10001,gid=10001
+      - /logs:size=16m,uid=10001,gid=10001
+    volumes:
+      - cabinet-s3:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
   # Кабинет компании: проверяет токены Keycloak, отдаёт профиль и набор
   # документов, хранит загруженные файлы. Наружу — только через nginx.
   cabinet:
@@ -185,12 +226,23 @@ services:
     depends_on:
       cabinet-db:
         condition: service_healthy
+      s3:
+        condition: service_healthy
     environment:
       KEYCLOAK_ISSUER: ${FNSKIT_SITE_URL}/auth/realms/fnskit
       KEYCLOAK_JWKS_URL: http://keycloak:8080/auth/realms/fnskit/protocol/openid-connect/certs
       DB_HOST: cabinet-db
       DB_PASSWORD: ${CABINET_DB_PASSWORD:?Задайте CABINET_DB_PASSWORD в .env}
       ENCRYPTION_KEY: ${CABINET_ENCRYPTION_KEY:?Задайте CABINET_ENCRYPTION_KEY в .env}
+      # Шифротекст файлов — в S3; локально это сервис s3 выше.
+      S3_ENDPOINT_URL: ${CABINET_S3_ENDPOINT_URL:-http://s3:9000}
+      S3_REGION: ${CABINET_S3_REGION:-us-east-1}
+      S3_BUCKET: ${CABINET_S3_BUCKET:-fnskit-documents}
+      S3_ACCESS_KEY: ${CABINET_S3_ACCESS_KEY:?Задайте CABINET_S3_ACCESS_KEY в .env}
+      S3_SECRET_KEY: ${CABINET_S3_SECRET_KEY:?Задайте CABINET_S3_SECRET_KEY в .env}
+      S3_PATH_STYLE: ${CABINET_S3_PATH_STYLE:-true}
+      # Локально бакет создаётся сам; в продакшене — заранее и вручную.
+      S3_CREATE_BUCKET: ${CABINET_S3_CREATE_BUCKET:-true}
       PUBLIC_URL: ${FNSKIT_SITE_URL}
       # Письма-напоминания о сроках документов идут через тот же SMTP, что и
       # письма Keycloak.
@@ -288,3 +340,4 @@ volumes:
   processor-workspace:
   keycloak-db:
   cabinet-db:
+  cabinet-s3:

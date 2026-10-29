@@ -19,6 +19,7 @@
          │
          ├─── /api/processor/*  ──► [ processor (FastAPI, :8080) ]
          ├─── /api/cabinet/*    ──► [ cabinet (FastAPI, :8080) ] ──► [ cabinet-db (PostgreSQL 17) ]
+         │                                                    └──► [ S3 (шифротекст файлов) ]
          └─── /auth/*           ──► [ keycloak (:8080) ]         ──► [ keycloak-db (PostgreSQL 17) ]
 ```
 
@@ -100,7 +101,8 @@
   * `asyncpg` (`0.32.0`) — асинхронный драйвер PostgreSQL;
   * `PyJWT[crypto]` (`2.15.1`) и `cryptography` (`50.0.2`) — валидация JWT-токенов Keycloak;
   * `pydantic-settings` (`2.14.2`), `httpx` (`0.28.1`).
-* **База данных (`cabinet-db`):** PostgreSQL `17-alpine`. Хранит профили организаций, метаданные постоянных документов и токены общего доступа.
+* **База данных (`cabinet-db`):** PostgreSQL `17-alpine`. Хранит метаданные постоянных документов, хеши токенов общего доступа, сроки и очередь объектов на удаление.
+* **Хранилище файлов:** любой S3-совместимый бакет, клиент свой (`app/objects.py`, подпись AWS SigV4 поверх `httpx`, без boto3). В бакете только шифротекст AES-256-GCM. Локально — **RustFS** `1.0.4` (сервис `s3` в `docker-compose.yml`, консоль на `localhost:9001`).
 
 ### Идентификация (`keycloak`)
 * **Сервис:** Keycloak `26` (Quarkus runtime).

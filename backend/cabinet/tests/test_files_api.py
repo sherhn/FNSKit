@@ -10,9 +10,11 @@ from fastapi.testclient import TestClient
 from app import main, reminders
 from app.auth import JwksCache, TokenVerifier
 from app.main import app
+from app.store import ContentRef
 from support import (
     JWKS_URL,
     FakeKeycloak,
+    MemoryObjects,
     MemoryStore,
     SigningKey,
     access_claims,
@@ -32,6 +34,8 @@ class FilesApiTest(unittest.TestCase):
         self.store = MemoryStore()
         app.state.store = self.store
         app.state.cipher = make_cipher()
+        self.objects = MemoryObjects()
+        app.state.objects = self.objects
         self.client = TestClient(app)
         self.client.__enter__()
         self.addCleanup(self.client.__exit__, None, None, None)
@@ -63,9 +67,13 @@ class FilesApiTest(unittest.TestCase):
         self.assertEqual(file["size_bytes"], len(PDF))
         self.assertEqual(file["links"], [])
 
-        # В хранилище — шифротекст, а не сам файл.
-        sealed = self.store.contents[file["id"]]
-        self.assertNotIn(b"%PDF", sealed.ciphertext)
+        # В S3 — шифротекст, а не сам файл; в ключе объекта ни имени файла,
+        # ни владельца.
+        object_key = f"documents/{file['id']}"
+        self.assertEqual(list(self.objects.objects), [object_key])
+        self.assertNotIn(b"%PDF", self.objects.objects[object_key])
+        self.assertEqual(len(self.objects.objects[object_key]), len(PDF) + 16)
+        self.assertEqual(self.store.garbage, {})
 
         listing = self.client.get("/v1/documents", headers=self.auth())
         self.assertEqual(listing.headers["cache-control"], "no-store")
@@ -84,6 +92,8 @@ class FilesApiTest(unittest.TestCase):
 
         deleted = self.client.delete(f"/v1/documents/{file['id']}", headers=self.auth())
         self.assertEqual(deleted.status_code, 204)
+        self.assertEqual(self.objects.objects, {})
+        self.assertEqual(self.store.garbage, {})
         self.assertEqual(self.client.get("/v1/documents", headers=self.auth()).json()["files"], [])
         self.assertEqual(
             self.client.get(f"/v1/documents/{file['id']}/content", headers=self.auth()).status_code, 404
@@ -208,6 +218,21 @@ class FilesApiTest(unittest.TestCase):
         self.assertEqual(self.client.get(f"/v1/shared/{token}").status_code, 404)
         self.assertEqual(self.client.post(f"/v1/shared/{token}").status_code, 404)
 
+    def test_storage_failure_does_not_spend_link_download(self) -> None:
+        file = self.upload().json()
+        link = self.client.post(
+            f"/v1/documents/{file['id']}/links", json={"days": 7, "max_downloads": 1}, headers=self.auth()
+        ).json()
+        token = link["url"].rsplit("/", 1)[-1]
+        self.objects.available = False
+        with self.assertLogs("fnskit.cabinet", level="ERROR"):
+            self.assertEqual(self.client.post(f"/v1/shared/{token}").status_code, 503)
+        self.objects.available = True
+        response = self.client.post(f"/v1/shared/{token}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, PDF)
+        self.assertEqual(self.client.post(f"/v1/shared/{token}").status_code, 404)
+
     def test_download_limit(self) -> None:
         file = self.upload().json()
         link = self.make_link(file["id"], max_downloads=2)
@@ -294,12 +319,137 @@ class FilesApiTest(unittest.TestCase):
 
     def test_tampered_ciphertext_is_not_served(self) -> None:
         file = self.upload().json()
-        sealed = self.store.contents[file["id"]]
-        broken = bytes([sealed.ciphertext[0] ^ 1]) + sealed.ciphertext[1:]
-        self.store.contents[file["id"]] = type(sealed)(sealed.key_id, sealed.nonce, broken)
+        key = f"documents/{file['id']}"
+        stored = self.objects.objects[key]
+        self.objects.objects[key] = bytes([stored[0] ^ 1]) + stored[1:]
         with self.assertLogs("fnskit.cabinet", level="ERROR"):
             response = self.client.get(f"/v1/documents/{file['id']}/content", headers=self.auth())
         self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["detail"], "Файл не удалось прочитать. Напишите в поддержку.")
+
+    def test_swapped_object_is_not_served(self) -> None:
+        # Объект другого документа, даже того же владельца, не расшифруется:
+        # шифротекст привязан к id документа.
+        first = self.upload().json()
+        second = self.upload(filename="другой.pdf").json()
+        objects = self.objects.objects
+        objects[f"documents/{first['id']}"] = objects[f"documents/{second['id']}"]
+        with self.assertLogs("fnskit.cabinet", level="ERROR"):
+            response = self.client.get(f"/v1/documents/{first['id']}/content", headers=self.auth())
+        self.assertEqual(response.status_code, 500)
+
+    # --- Хранилище S3 ---
+
+    def test_oversized_object_is_not_read(self) -> None:
+        file = self.upload().json()
+        self.objects.objects[f"documents/{file['id']}"] += b"x" * 1024
+        with self.assertLogs("fnskit.cabinet", level="ERROR"):
+            response = self.client.get(f"/v1/documents/{file['id']}/content", headers=self.auth())
+        self.assertEqual(response.status_code, 503)
+
+    def test_missing_object(self) -> None:
+        file = self.upload().json()
+        del self.objects.objects[f"documents/{file['id']}"]
+        with self.assertLogs("fnskit.cabinet", level="ERROR"):
+            response = self.client.get(f"/v1/documents/{file['id']}/content", headers=self.auth())
+        self.assertEqual(response.status_code, 500)
+
+    def test_upload_when_storage_is_down(self) -> None:
+        self.objects.available = False
+        with self.assertLogs("fnskit.cabinet", level="ERROR"):
+            response = self.upload()
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("Хранилище файлов временно недоступно", response.json()["detail"])
+        self.assertEqual(self.store.documents, {})
+        # Объект мог дойти до хранилища, а ответ — потеряться: ключ остаётся в
+        # очереди и будет удалён, когда хранилище вернётся.
+        self.assertEqual(len(self.store.garbage), 1)
+        self.objects.available = True
+        self.objects.objects[next(iter(self.store.garbage))] = b"half-written"
+        for key in list(self.store.garbage):
+            self.store.garbage[key] = datetime.now(UTC) - timedelta(seconds=1)
+        removed = asyncio.run(main.purge_storage_garbage(self.store, self.objects))
+        self.assertEqual(removed, 1)
+        self.assertEqual(self.objects.objects, {})
+        self.assertEqual(self.store.garbage, {})
+
+    def test_download_when_storage_is_down(self) -> None:
+        file = self.upload().json()
+        self.objects.available = False
+        with self.assertLogs("fnskit.cabinet", level="ERROR"):
+            response = self.client.get(f"/v1/documents/{file['id']}/content", headers=self.auth())
+        self.assertEqual(response.status_code, 503)
+
+    def test_delete_when_storage_is_down(self) -> None:
+        file = self.upload().json()
+        self.objects.available = False
+        with self.assertLogs("fnskit.cabinet", level="WARNING"):
+            response = self.client.delete(f"/v1/documents/{file['id']}", headers=self.auth())
+        # Для пользователя файл удалён сразу; объект уберёт уборщик.
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(self.store.documents, {})
+        self.assertEqual(list(self.store.garbage), [f"documents/{file['id']}"])
+        with self.assertLogs("fnskit.cabinet", level="WARNING"):
+            self.assertEqual(asyncio.run(main.purge_storage_garbage(self.store, self.objects)), 0)
+        self.objects.available = True
+        self.assertEqual(asyncio.run(main.purge_storage_garbage(self.store, self.objects)), 1)
+        self.assertEqual(self.objects.objects, {})
+        self.assertEqual(self.store.garbage, {})
+
+    def test_quota_rejection_leaves_no_object(self) -> None:
+        with mock.patch.object(main.settings, "max_documents_per_user", 1):
+            self.assertEqual(self.upload().status_code, 201)
+            self.assertEqual(self.upload().status_code, 409)
+        self.assertEqual(len(self.objects.objects), 1)
+        self.assertEqual(self.store.garbage, {})
+
+    def test_abandoned_upload_is_cleaned_after_grace(self) -> None:
+        # Процесс упал между записью объекта и записью в базу.
+        async def crash_after_put():
+            await self.store.reserve_object("documents/orphan", timedelta(minutes=60))
+            await self.objects.put("documents/orphan", b"ciphertext")
+            return await main.purge_storage_garbage(self.store, self.objects)
+
+        self.assertEqual(asyncio.run(crash_after_put()), 0)  # загрузка ещё может идти
+        self.store.garbage["documents/orphan"] = datetime.now(UTC) - timedelta(seconds=1)
+        self.assertEqual(asyncio.run(main.purge_storage_garbage(self.store, self.objects)), 1)
+        self.assertEqual(self.objects.objects, {})
+
+    def test_legacy_file_is_served_and_migrated(self) -> None:
+        # Файл, загруженный, когда шифротекст жил в базе.
+        file = self.upload().json()
+        key = f"documents/{file['id']}"
+        ciphertext = self.objects.objects.pop(key)
+        content = self.store.contents[file["id"]]
+        self.store.contents[file["id"]] = ContentRef(content.key_id, content.nonce, None, ciphertext)
+
+        before = self.client.get(f"/v1/documents/{file['id']}/content", headers=self.auth())
+        self.assertEqual(before.content, PDF)
+
+        moved = asyncio.run(main.migrate_legacy(self.store, self.objects))
+        self.assertEqual(moved, 1)
+        self.assertEqual(self.objects.objects[key], ciphertext)
+        self.assertEqual(self.store.contents[file["id"]].object_key, key)
+        self.assertIsNone(self.store.contents[file["id"]].legacy_ciphertext)
+        self.assertEqual(self.store.garbage, {})
+        self.assertEqual(asyncio.run(main.migrate_legacy(self.store, self.objects)), 0)
+
+        after = self.client.get(f"/v1/documents/{file['id']}/content", headers=self.auth())
+        self.assertEqual(after.content, PDF)
+
+    def test_legacy_migration_waits_for_storage(self) -> None:
+        file = self.upload().json()
+        key = f"documents/{file['id']}"
+        ciphertext = self.objects.objects.pop(key)
+        content = self.store.contents[file["id"]]
+        self.store.contents[file["id"]] = ContentRef(content.key_id, content.nonce, None, ciphertext)
+        self.objects.available = False
+        with self.assertRaises(main.StorageUnavailable):
+            asyncio.run(main.migrate_legacy(self.store, self.objects))
+        # Файл остался в базе и по-прежнему скачивается.
+        self.assertIsNone(self.store.contents[file["id"]].object_key)
+        self.objects.available = True
+        self.assertEqual(asyncio.run(main.migrate_legacy(self.store, self.objects)), 1)
 
     # --- Сроки и напоминания ---
 

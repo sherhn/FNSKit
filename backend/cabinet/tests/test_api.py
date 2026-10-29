@@ -8,6 +8,7 @@ from app.main import app
 from support import (
     JWKS_URL,
     FakeKeycloak,
+    MemoryObjects,
     MemoryStore,
     SigningKey,
     access_claims,
@@ -24,6 +25,7 @@ class MeEndpointTest(unittest.TestCase):
         # пойдёт подключаться к настоящему Postgres.
         app.state.store = MemoryStore()
         app.state.cipher = make_cipher()
+        app.state.objects = MemoryObjects()
         self.client = TestClient(app)
         self.client.__enter__()
         self.addCleanup(self.client.__exit__, None, None, None)

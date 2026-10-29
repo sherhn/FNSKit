@@ -1,20 +1,28 @@
-"""Хранилище документов кабинета.
+"""Метаданные документов кабинета.
 
-Метаданные и зашифрованное содержимое лежат в своей базе Postgres
-(cabinet-db), отдельно от базы Keycloak. Содержимое — в отдельной таблице,
-чтобы список документов не тянул за собой мегабайты. Одна база вместо
-«файлы на диске + записи в базе» — значит, нет рассинхронизации при сбоях,
-а удаление записи сразу удаляет и файл, и ссылки на него.
+Записи о файлах, ссылки и сроки лежат в своей базе Postgres (cabinet-db),
+отдельно от базы Keycloak. Шифротекст файлов — в S3 (app/objects.py), в базе
+рядом с записью только ключ объекта, метка ключа шифрования и nonce.
+
+База и хранилище — две системы, и между ними возможны сбои: загрузка
+оборвалась после записи объекта, но до записи в базу, или файл удалён из
+базы, а хранилище не ответило на удаление. На этот случай есть очередь
+storage_garbage: ключ объекта попадает в неё до записи в S3 и при удалении
+документа, а уборщик удаляет из хранилища всё, чему пришёл срок. Поэтому
+объект без записи в базе живёт не дольше срока уборки, а запись без объекта
+не появляется: строка в documents пишется только после того, как хранилище
+подтвердило запись.
+
+Файлы, загруженные до переезда в S3, лежат в таблице document_contents; при
+старте и при каждой уборке они переносятся в S3 (migrate_legacy в main.py).
 """
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Protocol
 
 import asyncpg
-
-from app.files import Sealed
 
 
 class QuotaExceeded(Exception):
@@ -49,6 +57,28 @@ class StoredDocument:
 
 
 @dataclass(frozen=True)
+class ContentRef:
+    """Где лежит шифротекст документа и чем его открыть."""
+
+    key_id: str
+    nonce: bytes
+    # Ключ объекта в S3. None — файл загружен до переезда в S3 и ещё не
+    # перенесён: шифротекст тогда в legacy_ciphertext.
+    object_key: str | None
+    legacy_ciphertext: bytes | None = None
+
+
+@dataclass(frozen=True)
+class LegacyContent:
+    """Файл из document_contents, который ещё не перенесён в S3."""
+
+    document_id: str
+    key_id: str
+    nonce: bytes
+    ciphertext: bytes
+
+
+@dataclass(frozen=True)
 class NewDocument:
     id: str
     owner: str
@@ -57,7 +87,7 @@ class NewDocument:
     content_type: str
     size_bytes: int
     sha256: str
-    sealed: Sealed
+    content: ContentRef
 
 
 @dataclass(frozen=True)
@@ -83,9 +113,9 @@ class DocumentStore(Protocol):
 
     async def get_document(
         self, owner: str, document_id: str
-    ) -> tuple[StoredDocument, Sealed] | None: ...
+    ) -> tuple[StoredDocument, ContentRef] | None: ...
 
-    async def delete_document(self, owner: str, document_id: str) -> bool: ...
+    async def delete_document(self, owner: str, document_id: str) -> ContentRef | None: ...
 
     async def create_link(
         self, owner: str, document_id: str, token_hash: bytes, expires_at: datetime,
@@ -96,7 +126,9 @@ class DocumentStore(Protocol):
 
     async def peek_link(self, token_hash: bytes) -> tuple[StoredDocument, ShareLink] | None: ...
 
-    async def open_link(self, token_hash: bytes) -> tuple[StoredDocument, Sealed] | None: ...
+    async def content_of(self, document_id: str) -> ContentRef | None: ...
+
+    async def consume_link(self, token_hash: bytes) -> str | None: ...
 
     async def purge_expired_links(self) -> int: ...
 
@@ -111,6 +143,16 @@ class DocumentStore(Protocol):
     async def reminder_candidates(self) -> list[tuple[StoredDocument, str]]: ...
 
     async def mark_reminded(self, document_id: str, threshold: int | None) -> None: ...
+
+    async def reserve_object(self, object_key: str, grace: timedelta) -> None: ...
+
+    async def forget_object(self, object_key: str) -> None: ...
+
+    async def garbage_due(self, limit: int) -> list[str]: ...
+
+    async def legacy_contents(self, limit: int) -> list[LegacyContent]: ...
+
+    async def attach_object(self, document_id: str, object_key: str) -> bool: ...
 
     async def close(self) -> None: ...
 
@@ -158,6 +200,21 @@ CREATE TABLE IF NOT EXISTS reminder_contacts (
     email_reminders boolean     NOT NULL DEFAULT true,
     updated_at      timestamptz NOT NULL DEFAULT now()
 );
+
+-- Шифротекст — в S3; у старых записей колонки пусты, пока файл не перенесён
+-- из document_contents.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS object_key text;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS key_id text;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS nonce bytea;
+
+-- Объекты S3 на удаление (см. описание модуля). purge_after — когда можно
+-- удалять: у загрузки в процессе — с запасом на её окончание, у удалённого
+-- документа — сразу.
+CREATE TABLE IF NOT EXISTS storage_garbage (
+    object_key  text PRIMARY KEY,
+    purge_after timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS storage_garbage_due_idx ON storage_garbage (purge_after);
 """
 
 _DOCUMENT_COLUMNS = (
@@ -182,8 +239,22 @@ def _document(row, links: list[ShareLink] | None = None) -> StoredDocument:
     )
 
 
-def _sealed(row) -> Sealed:
-    return Sealed(row["key_id"], bytes(row["nonce"]), bytes(row["ciphertext"]))
+# Шифр и место хранения: из documents, а у не перенесённых файлов — из
+# document_contents (LEFT JOIN c).
+_CONTENT_COLUMNS = (
+    "COALESCE(d.key_id, c.key_id) AS content_key_id, COALESCE(d.nonce, c.nonce) AS content_nonce, "
+    "d.object_key, c.ciphertext AS legacy_ciphertext"
+)
+
+
+def _content(row) -> ContentRef:
+    legacy = row["legacy_ciphertext"]
+    return ContentRef(
+        key_id=row["content_key_id"],
+        nonce=bytes(row["content_nonce"]),
+        object_key=row["object_key"],
+        legacy_ciphertext=bytes(legacy) if legacy is not None and row["object_key"] is None else None,
+    )
 
 
 def _uuid(value: str) -> uuid.UUID | None:
@@ -255,44 +326,62 @@ class PostgresStore:
                 raise QuotaExceeded(f"В кабинете уже {max_count} файлов — удалите ненужные, чтобы загрузить новый.")
             if int(usage["total"]) + document.size_bytes > max_bytes:
                 raise QuotaExceeded("Место в кабинете закончилось — удалите ненужные файлы.")
+            content = document.content
             row = await connection.fetchrow(
                 """
-                INSERT INTO documents AS d (id, owner, kind, filename, content_type, size_bytes, sha256)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                INSERT INTO documents AS d
+                    (id, owner, kind, filename, content_type, size_bytes, sha256, object_key, key_id, nonce)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 RETURNING """ + _DOCUMENT_COLUMNS,
                 uuid.UUID(document.id), document.owner, document.kind, document.filename,
                 document.content_type, document.size_bytes, document.sha256,
+                content.object_key, content.key_id, content.nonce,
             )
-            await connection.execute(
-                "INSERT INTO document_contents (document_id, key_id, nonce, ciphertext) VALUES ($1, $2, $3, $4)",
-                uuid.UUID(document.id), document.sealed.key_id, document.sealed.nonce, document.sealed.ciphertext,
-            )
+            # Объект теперь принадлежит записи — из очереди на удаление его
+            # убираем в той же транзакции.
+            await connection.execute("DELETE FROM storage_garbage WHERE object_key = $1", content.object_key)
         return _document(row)
 
-    async def get_document(self, owner: str, document_id: str) -> tuple[StoredDocument, Sealed] | None:
+    async def get_document(self, owner: str, document_id: str) -> tuple[StoredDocument, ContentRef] | None:
         key = _uuid(document_id)
         if key is None:
             return None
         async with self._pool.acquire() as connection:
             row = await connection.fetchrow(
                 f"""
-                SELECT {_DOCUMENT_COLUMNS}, c.key_id, c.nonce, c.ciphertext
-                FROM documents d JOIN document_contents c ON c.document_id = d.id
+                SELECT {_DOCUMENT_COLUMNS}, {_CONTENT_COLUMNS}
+                FROM documents d LEFT JOIN document_contents c ON c.document_id = d.id
                 WHERE d.id = $1 AND d.owner = $2
                 """,
                 key, owner,
             )
-        return (_document(row), _sealed(row)) if row else None
+        return (_document(row), _content(row)) if row else None
 
-    async def delete_document(self, owner: str, document_id: str) -> bool:
+    async def delete_document(self, owner: str, document_id: str) -> ContentRef | None:
+        """Удалить запись (ссылки и старое содержимое уходят каскадом), а её
+        объект поставить в очередь на удаление — одной транзакцией."""
         key = _uuid(document_id)
         if key is None:
-            return False
-        async with self._pool.acquire() as connection:
-            result = await connection.execute(
-                "DELETE FROM documents WHERE id = $1 AND owner = $2", key, owner
+            return None
+        async with self._pool.acquire() as connection, connection.transaction():
+            row = await connection.fetchrow(
+                f"""
+                SELECT {_CONTENT_COLUMNS}
+                FROM documents d LEFT JOIN document_contents c ON c.document_id = d.id
+                WHERE d.id = $1 AND d.owner = $2
+                FOR UPDATE OF d
+                """,
+                key, owner,
             )
-        return result.endswith(" 1")
+            if row is None:
+                return None
+            await connection.execute("DELETE FROM documents WHERE id = $1", key)
+            if row["object_key"] is not None:
+                await connection.execute(
+                    "INSERT INTO storage_garbage (object_key) VALUES ($1) ON CONFLICT DO NOTHING",
+                    row["object_key"],
+                )
+        return _content(row)
 
     async def create_link(
         self, owner: str, document_id: str, token_hash: bytes, expires_at: datetime,
@@ -350,12 +439,30 @@ class PostgresStore:
                          row["download_count"], row["max_downloads"])
         return _document(row), link
 
-    async def open_link(self, token_hash: bytes) -> tuple[StoredDocument, Sealed] | None:
-        """Скачивание по ссылке: списывает одно скачивание. Условие и
+    async def content_of(self, document_id: str) -> ContentRef | None:
+        """Место хранения файла без проверки владельца — только для ссылок,
+        где доступ уже дал токен."""
+        key = _uuid(document_id)
+        if key is None:
+            return None
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                f"""
+                SELECT {_CONTENT_COLUMNS}
+                FROM documents d LEFT JOIN document_contents c ON c.document_id = d.id
+                WHERE d.id = $1
+                """,
+                key,
+            )
+        return _content(row) if row else None
+
+    async def consume_link(self, token_hash: bytes) -> str | None:
+        """Списать одно скачивание по ссылке и вернуть id документа. Условие и
         увеличение счётчика — одним запросом, поэтому две одновременные
-        загрузки не пройдут сверх лимита."""
-        async with self._pool.acquire() as connection, connection.transaction():
-            link = await connection.fetchrow(
+        загрузки не пройдут сверх лимита. Вызывается, когда файл уже прочитан
+        из хранилища: сбой хранилища скачивание не списывает."""
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
                 """
                 UPDATE share_links SET download_count = download_count + 1, last_download_at = now()
                 WHERE token_hash = $1 AND expires_at > now()
@@ -364,17 +471,7 @@ class PostgresStore:
                 """,
                 token_hash,
             )
-            if link is None:
-                return None
-            row = await connection.fetchrow(
-                f"""
-                SELECT {_DOCUMENT_COLUMNS}, c.key_id, c.nonce, c.ciphertext
-                FROM documents d JOIN document_contents c ON c.document_id = d.id
-                WHERE d.id = $1
-                """,
-                link["document_id"],
-            )
-        return (_document(row), _sealed(row)) if row else None
+        return str(row["document_id"]) if row else None
 
     async def purge_expired_links(self) -> int:
         async with self._pool.acquire() as connection:
@@ -444,3 +541,68 @@ class PostgresStore:
             await connection.execute(
                 "UPDATE documents SET last_reminder = $2 WHERE id = $1", key, threshold
             )
+
+    # --- Согласование с хранилищем ------------------------------------------
+
+    async def reserve_object(self, object_key: str, grace: timedelta) -> None:
+        """Записать объект в очередь на удаление до того, как он появится в S3:
+        если загрузка оборвётся, уборщик удалит его не раньше чем через grace."""
+        async with self._pool.acquire() as connection:
+            await connection.execute(
+                """
+                INSERT INTO storage_garbage (object_key, purge_after) VALUES ($1, now() + $2)
+                ON CONFLICT (object_key) DO UPDATE SET purge_after = EXCLUDED.purge_after
+                """,
+                object_key, grace,
+            )
+
+    async def forget_object(self, object_key: str) -> None:
+        async with self._pool.acquire() as connection:
+            await connection.execute("DELETE FROM storage_garbage WHERE object_key = $1", object_key)
+
+    async def garbage_due(self, limit: int) -> list[str]:
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(
+                "SELECT object_key FROM storage_garbage WHERE purge_after <= now() ORDER BY purge_after LIMIT $1",
+                limit,
+            )
+        return [row["object_key"] for row in rows]
+
+    async def legacy_contents(self, limit: int) -> list[LegacyContent]:
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(
+                """
+                SELECT c.document_id, c.key_id, c.nonce, c.ciphertext
+                FROM document_contents c JOIN documents d ON d.id = c.document_id
+                WHERE d.object_key IS NULL
+                ORDER BY d.created_at
+                LIMIT $1
+                """,
+                limit,
+            )
+        return [
+            LegacyContent(str(row["document_id"]), row["key_id"], bytes(row["nonce"]), bytes(row["ciphertext"]))
+            for row in rows
+        ]
+
+    async def attach_object(self, document_id: str, object_key: str) -> bool:
+        """Перенесённый в S3 файл: запись теперь ссылается на объект, а
+        шифротекст из базы удаляется. False — документ успели удалить."""
+        key = _uuid(document_id)
+        if key is None:
+            return False
+        async with self._pool.acquire() as connection, connection.transaction():
+            row = await connection.fetchrow(
+                """
+                UPDATE documents d SET object_key = $2, key_id = c.key_id, nonce = c.nonce
+                FROM document_contents c
+                WHERE d.id = $1 AND c.document_id = d.id AND d.object_key IS NULL
+                RETURNING d.id
+                """,
+                key, object_key,
+            )
+            if row is None:
+                return False
+            await connection.execute("DELETE FROM document_contents WHERE document_id = $1", key)
+            await connection.execute("DELETE FROM storage_garbage WHERE object_key = $1", object_key)
+        return True

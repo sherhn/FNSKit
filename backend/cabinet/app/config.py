@@ -49,6 +49,24 @@ class Settings(BaseSettings):
     encryption_key: SecretStr = SecretStr("")
     # Метка ключа пишется рядом с каждым файлом — задел на смену ключа.
     encryption_key_id: str = "k1"
+    # Шифротекст файлов — в S3-совместимом хранилище (app/objects.py),
+    # записи о них — в базе. Локально — RustFS из docker-compose.yml.
+    s3_endpoint_url: str = "http://s3:9000"
+    s3_region: str = "us-east-1"
+    s3_bucket: str = "fnskit-documents"
+    s3_access_key: SecretStr = SecretStr("")
+    s3_secret_key: SecretStr = SecretStr("")
+    # Бакет в пути адреса (RustFS, MinIO, Yandex Object Storage) или в имени
+    # хоста (виртуальные хосты AWS).
+    s3_path_style: bool = True
+    # Создать бакет при старте, если его нет. Только для разработки: в
+    # продакшене бакет заводится заранее, и права создавать бакеты у ключа
+    # кабинета быть не должно.
+    s3_create_bucket: bool = False
+    s3_timeout_seconds: float = Field(default=30, gt=0, le=300)
+    # Сколько ждать окончания загрузки, прежде чем уборщик сочтёт объект
+    # брошенным: с запасом к upload_timeout_seconds и записи в S3.
+    s3_orphan_grace_minutes: int = Field(default=60, ge=10)
     # Публичный адрес сайта: от него строятся ссылки для передачи файлов.
     public_url: str = "http://localhost:8082"
     max_document_bytes: int = Field(default=20 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)

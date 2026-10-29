@@ -28,7 +28,15 @@ from app.files import (
     new_link_token,
     token_hash,
 )
-from app.store import DocumentStore, NewDocument, PostgresStore, QuotaExceeded, StoredDocument
+from app.objects import ObjectMissing, ObjectStore, S3ObjectStore, StorageUnavailable
+from app.store import (
+    ContentRef,
+    DocumentStore,
+    NewDocument,
+    PostgresStore,
+    QuotaExceeded,
+    StoredDocument,
+)
 
 settings = get_settings()
 logger = logging.getLogger("fnskit.cabinet")
@@ -39,16 +47,80 @@ MAX_LINK_DOWNLOADS = 100
 # одновременных передач держит потолок памяти контейнера.
 transfer_slots = asyncio.Semaphore(settings.max_concurrent_transfers)
 
+# AES-GCM дописывает к шифротексту 16 байт метки.
+GCM_TAG_BYTES = 16
+GARBAGE_BATCH = 100
 
-async def purge_links_forever(store: DocumentStore) -> None:
+
+def object_key_for(document_id: str) -> str:
+    # В ключе только id документа: ни имени файла, ни владельца — по списку
+    # объектов бакета нельзя понять, чьи это документы.
+    return f"documents/{document_id}"
+
+
+async def discard_object(store: DocumentStore, objects: ObjectStore, object_key: str) -> bool:
+    """Удалить объект из хранилища и из очереди на удаление. Не вышло — он
+    остаётся в очереди, и его удалит следующий проход уборщика."""
+    try:
+        await objects.delete(object_key)
+    except StorageUnavailable as error:
+        logger.warning("Объект %s пока не удалён из хранилища: %s", object_key, error)
+        return False
+    await store.forget_object(object_key)
+    return True
+
+
+async def purge_storage_garbage(store: DocumentStore, objects: ObjectStore) -> int:
+    removed = 0
+    for object_key in await store.garbage_due(GARBAGE_BATCH):
+        if not await discard_object(store, objects, object_key):
+            break  # хранилище не отвечает — продолжим в следующий проход
+        removed += 1
+    return removed
+
+
+async def migrate_legacy(store: DocumentStore, objects: ObjectStore) -> int:
+    """Перенести в S3 файлы, загруженные, когда шифротекст хранился в базе.
+    Шифротекст переезжает байт в байт: nonce и метка ключа те же, AAD
+    привязан к документу и владельцу, а не к месту хранения. По одному файлу
+    за раз и в месте передачи — файл целиком в памяти."""
+    grace = timedelta(minutes=settings.s3_orphan_grace_minutes)
+    moved = 0
     while True:
-        try:
-            removed = await store.purge_expired_links()
-        except Exception:
-            logger.exception("Не удалось удалить истёкшие ссылки.")
+        async with transfer_slots:
+            batch = await store.legacy_contents(1)
+            if not batch:
+                return moved
+            item = batch[0]
+            object_key = object_key_for(item.document_id)
+            await store.reserve_object(object_key, grace)
+            await objects.put(object_key, item.ciphertext)
+        if await store.attach_object(item.document_id, object_key):
+            moved += 1
         else:
-            if removed:
-                logger.info("Удалено истёкших ссылок: %s", removed)
+            # Документ удалили, пока файл ехал в хранилище.
+            await discard_object(store, objects, object_key)
+
+
+async def maintain_forever(store: DocumentStore, objects: ObjectStore) -> None:
+    """Уборка раз в EXPIRED_LINKS_SWEEP_MINUTES: истёкшие ссылки, объекты из
+    очереди на удаление и перенос старых файлов в S3. Сбой одной задачи не
+    мешает остальным."""
+    jobs = (
+        ("Удалено истёкших ссылок", "Не удалось удалить истёкшие ссылки.", store.purge_expired_links),
+        ("Удалено объектов из хранилища", "Не удалось убрать объекты из хранилища.",
+         lambda: purge_storage_garbage(store, objects)),
+        ("Перенесено файлов в S3", "Не удалось перенести файлы в S3.", lambda: migrate_legacy(store, objects)),
+    )
+    while True:
+        for done, failed, job in jobs:
+            try:
+                count = await job()
+            except Exception:
+                logger.exception(failed)
+            else:
+                if count:
+                    logger.info("%s: %s", done, count)
         await asyncio.sleep(settings.expired_links_sweep_minutes * 60)
 
 
@@ -81,12 +153,31 @@ async def lifespan(app: FastAPI):
             settings.db_user,
             settings.db_password.get_secret_value(),
         )
-    sweeper = asyncio.create_task(purge_links_forever(app.state.store))
-    reminder_task = (
-        asyncio.create_task(send_reminders_forever(app.state.store)) if reminders_available() else None
-    )
+    own_objects = getattr(app.state, "objects", None) is None
+    tasks: list[asyncio.Task] = []
     try:
         async with httpx.AsyncClient() as client:
+            if own_objects:
+                # Без ключей хранилища сервис не стартует, как и без ключа
+                # шифрования. Недоступное хранилище старт не останавливает:
+                # вход и профиль работают, а файлы вернутся вместе с ним.
+                app.state.objects = S3ObjectStore(
+                    client,
+                    settings.s3_endpoint_url,
+                    settings.s3_bucket,
+                    settings.s3_access_key.get_secret_value(),
+                    settings.s3_secret_key.get_secret_value(),
+                    region=settings.s3_region,
+                    path_style=settings.s3_path_style,
+                    timeout_seconds=settings.s3_timeout_seconds,
+                )
+                try:
+                    await app.state.objects.ensure_bucket(settings.s3_create_bucket)
+                except StorageUnavailable as error:
+                    logger.error("Хранилище файлов недоступно: %s", error)
+            tasks.append(asyncio.create_task(maintain_forever(app.state.store, app.state.objects)))
+            if reminders_available():
+                tasks.append(asyncio.create_task(send_reminders_forever(app.state.store)))
             keys = JwksCache(
                 settings.keycloak_jwks_url,
                 client,
@@ -94,13 +185,16 @@ async def lifespan(app: FastAPI):
                 timeout_seconds=settings.jwks_timeout_seconds,
             )
             app.state.verifier = TokenVerifier(settings, keys)
-            yield
+            try:
+                yield
+            finally:
+                for task in tasks:
+                    task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await task
     finally:
-        for task in (sweeper, reminder_task):
-            if task is not None:
-                task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await task
+        if own_objects:
+            app.state.objects = None
         if own_store:
             await app.state.store.close()
             app.state.store = None
@@ -248,8 +342,13 @@ def get_cipher(request: Request) -> FileCipher:
     return request.app.state.cipher
 
 
+def get_objects(request: Request) -> ObjectStore:
+    return request.app.state.objects
+
+
 Store = Annotated[DocumentStore, Depends(get_store)]
 Cipher = Annotated[FileCipher, Depends(get_cipher)]
+Objects = Annotated[ObjectStore, Depends(get_objects)]
 
 
 class ShareLinkOut(BaseModel):
@@ -373,16 +472,51 @@ async def read_body(request: Request, limit: int) -> bytes:
     return bytes(body)
 
 
+def unreadable() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Файл не удалось прочитать. Напишите в поддержку.",
+    )
+
+
+def storage_unavailable() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Хранилище файлов временно недоступно. Попробуйте через пару минут.",
+    )
+
+
 def decrypt(cipher: FileCipher, document: StoredDocument, sealed: Sealed) -> bytes:
     try:
         return cipher.open(sealed, document_aad(document.id, document.owner))
     except InvalidTag as error:
-        # Ключ не тот или содержимое в базе повреждено/подменено.
+        # Ключ не тот или содержимое в хранилище повреждено/подменено.
         logger.error("Не удалось расшифровать документ %s", document.id)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Файл не удалось прочитать. Напишите в поддержку.",
-        ) from error
+        raise unreadable() from error
+
+
+async def read_content(
+    objects: ObjectStore, cipher: FileCipher, document: StoredDocument, content: ContentRef
+) -> bytes:
+    """Прочитать шифротекст из хранилища (или из базы у не перенесённых
+    файлов) и расшифровать. Вызывать в месте передачи."""
+    if content.object_key is None:
+        ciphertext = content.legacy_ciphertext
+        if ciphertext is None:
+            logger.error("У документа %s нет содержимого", document.id)
+            raise unreadable()
+    else:
+        try:
+            # Размер известен заранее: больше — значит, объект подменён, и
+            # читать его целиком в память незачем.
+            ciphertext = await objects.get(content.object_key, document.size_bytes + GCM_TAG_BYTES)
+        except ObjectMissing as error:
+            logger.error("Нет объекта %s для документа %s", content.object_key, document.id)
+            raise unreadable() from error
+        except StorageUnavailable as error:
+            logger.error("Хранилище не отдало документ %s: %s", document.id, error)
+            raise storage_unavailable() from error
+    return decrypt(cipher, document, Sealed(content.key_id, content.nonce, ciphertext))
 
 
 def file_response(document: StoredDocument, content: bytes) -> Response:
@@ -429,6 +563,7 @@ async def upload_file(
     user: CurrentUser,
     store: Store,
     cipher: Cipher,
+    objects: Objects,
     kind: str,
     filename: str,
 ) -> FileOut:
@@ -457,6 +592,16 @@ async def upload_file(
             ) from error
         document_id = str(uuid.uuid4())
         sealed = cipher.seal(content, document_aad(document_id, user.subject))
+        object_key = object_key_for(document_id)
+        # Сначала очередь на удаление, потом хранилище, потом запись в базе:
+        # оборвись загрузка на любом шаге — брошенный объект уберёт уборщик.
+        await store.reserve_object(object_key, timedelta(minutes=settings.s3_orphan_grace_minutes))
+        try:
+            await objects.put(object_key, sealed.ciphertext)
+        except StorageUnavailable as error:
+            logger.error("Хранилище не приняло документ %s: %s", document_id, error)
+            await discard_object(store, objects, object_key)
+            raise storage_unavailable() from error
         try:
             stored = await store.add_document(
                 NewDocument(
@@ -467,12 +612,13 @@ async def upload_file(
                     content_type=content_type,
                     size_bytes=len(content),
                     sha256=hashlib.sha256(content).hexdigest(),
-                    sealed=sealed,
+                    content=ContentRef(sealed.key_id, sealed.nonce, object_key),
                 ),
                 max_count=settings.max_documents_per_user,
                 max_bytes=settings.max_storage_bytes_per_user,
             )
         except QuotaExceeded as error:
+            await discard_object(store, objects, object_key)
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     return file_out(stored)
 
@@ -523,20 +669,27 @@ async def set_reminders(body: RemindersPatch, user: CurrentUser, store: Store) -
 
 
 @app.get("/v1/documents/{document_id}/content")
-async def download_file(document_id: str, user: CurrentUser, store: Store, cipher: Cipher) -> Response:
+async def download_file(
+    document_id: str, user: CurrentUser, store: Store, cipher: Cipher, objects: Objects
+) -> Response:
     async with transfer_slots:
         found = await store.get_document(user.subject, document_id)
         if found is None:
             raise not_found()
-        document, sealed = found
-        content = decrypt(cipher, document, sealed)
+        document, content_ref = found
+        content = await read_content(objects, cipher, document, content_ref)
     return file_response(document, content)
 
 
 @app.delete("/v1/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_file(document_id: str, user: CurrentUser, store: Store) -> Response:
-    if not await store.delete_document(user.subject, document_id):
+async def delete_file(document_id: str, user: CurrentUser, store: Store, objects: Objects) -> Response:
+    content_ref = await store.delete_document(user.subject, document_id)
+    if content_ref is None:
         raise not_found()
+    # Запись уже удалена и объект в очереди на удаление: если хранилище сейчас
+    # не ответит, файл всё равно исчезнет при следующей уборке.
+    if content_ref.object_key is not None:
+        await discard_object(store, objects, content_ref.object_key)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -614,15 +767,24 @@ async def shared_page(token: str, store: Store) -> Response:
 
 
 @app.post("/v1/shared/{token}")
-async def download_shared(token: str, store: Store, cipher: Cipher) -> Response:
+async def download_shared(token: str, store: Store, cipher: Cipher, objects: Objects) -> Response:
     """Скачивание по ссылке — без входа: доступ даёт сам токен. Каждый успешный
-    запрос списывает одно скачивание."""
+    запрос списывает одно скачивание — после того, как файл прочитан: сбой
+    хранилища не должен съедать скачивания у ссылки с лимитом."""
     if not TOKEN_PATTERN.match(token):
         raise link_expired()
+    hashed = token_hash(token)
+    found = await store.peek_link(hashed)
+    if found is None:
+        raise link_expired()
+    document, _ = found
     async with transfer_slots:
-        found = await store.open_link(token_hash(token))
-        if found is None:
+        content_ref = await store.content_of(document.id)
+        if content_ref is None:
             raise link_expired()
-        document, sealed = found
-        content = decrypt(cipher, document, sealed)
+        content = await read_content(objects, cipher, document, content_ref)
+    # Списание — одним запросом с проверкой лимита: если ссылку успели
+    # исчерпать или отозвать, пока файл читался, файл не отдаётся.
+    if await store.consume_link(hashed) != document.id:
+        raise link_expired()
     return file_response(document, content)

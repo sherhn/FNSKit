@@ -6,7 +6,7 @@ from unittest import mock
 from app import reminders
 from app.documents import KINDS_BY_ID, due_date
 from app.files import document_aad
-from app.store import NewDocument
+from app.store import ContentRef, NewDocument
 from support import MemoryStore, make_cipher, make_settings
 
 TODAY = date(2026, 10, 20)
@@ -71,7 +71,7 @@ class RunOnceTest(unittest.IsolatedAsyncioTestCase):
         document_id = f"doc-{len(self.store.documents)}"
         await self.store.add_document(
             NewDocument(document_id, owner, kind, "сертификат.cer", "application/pkix-cert", 10, "0" * 64,
-                        self.cipher.seal(b"x", document_aad(document_id, owner))),
+                        ContentRef("k1", bytes(12), f"documents/{document_id}")),
             100, 10**9,
         )
         await self.store.set_doc_date(owner, document_id, doc_date, last)

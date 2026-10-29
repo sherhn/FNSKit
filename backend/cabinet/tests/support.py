@@ -10,7 +10,7 @@ import json
 import time
 import uuid
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
 from typing import Any
 
@@ -19,8 +19,18 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from app.config import Settings
-from app.files import FileCipher, Sealed
-from app.store import Contact, NewDocument, QuotaExceeded, ShareLink, StoredDocument, Usage
+from app.files import FileCipher
+from app.objects import ObjectMissing, StorageUnavailable
+from app.store import (
+    Contact,
+    ContentRef,
+    LegacyContent,
+    NewDocument,
+    QuotaExceeded,
+    ShareLink,
+    StoredDocument,
+    Usage,
+)
 
 ISSUER = "https://fnskit.test/auth/realms/fnskit"
 JWKS_URL = "http://keycloak.test/auth/realms/fnskit/protocol/openid-connect/certs"
@@ -119,15 +129,51 @@ def make_cipher() -> FileCipher:
     return FileCipher(TEST_ENCRYPTION_KEY, "k1")
 
 
+class MemoryObjects:
+    """S3 в памяти. available=False — хранилище не отвечает."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+        self.available = True
+        self.bucket_checks: list[bool] = []
+
+    def _check(self) -> None:
+        if not self.available:
+            raise StorageUnavailable("хранилище недоступно (тест)")
+
+    async def put(self, key: str, data: bytes) -> None:
+        self._check()
+        self.objects[key] = data
+
+    async def get(self, key: str, max_bytes: int) -> bytes:
+        self._check()
+        if key not in self.objects:
+            raise ObjectMissing(key)
+        if len(self.objects[key]) > max_bytes:
+            raise StorageUnavailable(f"объект больше {max_bytes} байт")
+        return self.objects[key]
+
+    async def delete(self, key: str) -> None:
+        self._check()
+        self.objects.pop(key, None)
+
+    async def ensure_bucket(self, create: bool) -> None:
+        self._check()
+        self.bucket_checks.append(create)
+
+
 class MemoryStore:
-    """То же поведение, что у PostgresStore: владельцы, квоты, сроки ссылок."""
+    """То же поведение, что у PostgresStore: владельцы, квоты, сроки ссылок,
+    очередь объектов на удаление."""
 
     def __init__(self) -> None:
         self.documents: dict[str, StoredDocument] = {}
-        self.contents: dict[str, Sealed] = {}
+        self.contents: dict[str, ContentRef] = {}
         # token_hash -> (link, document_id)
         self.links: dict[bytes, tuple[ShareLink, str]] = {}
         self.contacts: dict[str, Contact] = {}
+        # object_key -> purge_after
+        self.garbage: dict[str, datetime] = {}
 
     @staticmethod
     def _active(link: ShareLink, now: datetime) -> bool:
@@ -160,7 +206,8 @@ class MemoryStore:
             sha256=document.sha256, created_at=datetime.now(UTC),
         )
         self.documents[document.id] = stored
-        self.contents[document.id] = document.sealed
+        self.contents[document.id] = document.content
+        self.garbage.pop(document.content.object_key, None)
         return stored
 
     async def get_document(self, owner: str, document_id: str):
@@ -169,13 +216,16 @@ class MemoryStore:
             return None
         return document, self.contents[document_id]
 
-    async def delete_document(self, owner: str, document_id: str) -> bool:
+    async def delete_document(self, owner: str, document_id: str):
         document = self.documents.get(document_id)
         if document is None or document.owner != owner:
-            return False
-        del self.documents[document_id], self.contents[document_id]
+            return None
+        del self.documents[document_id]
+        content = self.contents.pop(document_id)
         self.links = {h: v for h, v in self.links.items() if v[1] != document_id}
-        return True
+        if content.object_key is not None:
+            self.garbage.setdefault(content.object_key, datetime.now(UTC))
+        return content
 
     async def create_link(self, owner: str, document_id: str, token_hash: bytes, expires_at: datetime,
                           max_downloads: int | None = None):
@@ -199,13 +249,16 @@ class MemoryStore:
             return None
         return self.documents[entry[1]], entry[0]
 
-    async def open_link(self, token_hash: bytes):
+    async def content_of(self, document_id: str):
+        return self.contents.get(document_id)
+
+    async def consume_link(self, token_hash: bytes):
         entry = self.links.get(token_hash)
         if entry is None or not self._active(entry[0], datetime.now(UTC)):
             return None
         link, document_id = entry
         self.links[token_hash] = (replace(link, download_count=link.download_count + 1), document_id)
-        return self.documents[document_id], self.contents[document_id]
+        return document_id
 
     async def purge_expired_links(self) -> int:
         now = datetime.now(UTC)
@@ -247,3 +300,30 @@ class MemoryStore:
         document = self.documents.get(document_id)
         if document is not None:
             self.documents[document_id] = replace(document, last_reminder=threshold)
+
+    async def reserve_object(self, object_key: str, grace: timedelta) -> None:
+        self.garbage[object_key] = datetime.now(UTC) + grace
+
+    async def forget_object(self, object_key: str) -> None:
+        self.garbage.pop(object_key, None)
+
+    async def garbage_due(self, limit: int) -> list[str]:
+        now = datetime.now(UTC)
+        due = sorted((when, key) for key, when in self.garbage.items() if when <= now)
+        return [key for _, key in due[:limit]]
+
+    async def legacy_contents(self, limit: int) -> list[LegacyContent]:
+        legacy = [
+            LegacyContent(document_id, content.key_id, content.nonce, content.legacy_ciphertext)
+            for document_id, content in self.contents.items()
+            if content.object_key is None and content.legacy_ciphertext is not None
+        ]
+        return legacy[:limit]
+
+    async def attach_object(self, document_id: str, object_key: str) -> bool:
+        content = self.contents.get(document_id)
+        if content is None or content.object_key is not None:
+            return False
+        self.contents[document_id] = ContentRef(content.key_id, content.nonce, object_key)
+        self.garbage.pop(object_key, None)
+        return True
