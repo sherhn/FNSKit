@@ -307,8 +307,13 @@
     ensureEditorFile();
     refreshDefaultFilenames();
     dropUnusedSources();
-    selectProfile(activeFile().profile);
+    const pageProfile = document.documentElement.dataset.profile;
+    const landing = openedByLink && profiles[pageProfile] && pageProfile !== activeFile().profile;
+    selectProfile(landing ? pageProfile : activeFile().profile);
     renderEditor();
+    // Профиль страницы записываем во вкладку сразу: иначе перезагрузка вернула
+    // бы прежний.
+    if (landing) await saveEditorState();
   }
 
   function formatBytes(bytes) {
@@ -1467,6 +1472,10 @@
   }
 
   const requestedProfile = document.documentElement.dataset.profile || new URLSearchParams(window.location.search).get("profile");
+  // ?profile= в адрес ставит сам редактор (selectProfile). Без него человек
+  // пришёл по ссылке на страницу профиля — и ждёт именно её профиль, а не тот,
+  // что остался у вкладки с прошлого раза.
+  const openedByLink = !new URLSearchParams(window.location.search).has("profile");
   ensureEditorFile();
   selectProfile(profiles[requestedProfile] ? requestedProfile : "vat");
   if (activeProfile === "custom") updateCustomSettings();
