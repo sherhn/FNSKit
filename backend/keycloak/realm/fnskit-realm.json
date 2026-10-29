@@ -87,6 +87,9 @@
       "baseUrl": "/account",
       "redirectUris": [
         "${FNSKIT_SITE_URL}/account",
+        "${FNSKIT_SITE_URL}/editor-dlya-fns",
+        "${FNSKIT_SITE_URL}/editor-dlya-registracii",
+        "${FNSKIT_SITE_URL}/editor-custom",
         "${FNSKIT_SITE_URL}/silent-check-sso"
       ],
       "webOrigins": [

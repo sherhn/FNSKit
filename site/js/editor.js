@@ -1843,11 +1843,14 @@
       return;
     }
     hideCreateMessage();
+    window.FNSKIT_CABINET_SAVE?.reset();
     setProcessingState(true);
     try {
       const result = await createDocument();
       closeCreateModal(true);
       showCreateMessage(`Файл «${result.filename}» готов: ${pluralPages(result.pageCount)}. Скачивание началось.`);
+      // Готовый файл можно положить в кабинет компании (js/cabinet-save.js).
+      window.FNSKIT_CABINET_SAVE?.offer(result.file, result.filename, result.formatLabel);
       offerResultViewer(result);
       await saveEditorState();
       renderEditor();
