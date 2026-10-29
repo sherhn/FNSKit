@@ -131,7 +131,7 @@
 
   // --- Состояние и форматирование -------------------------------------------
 
-  const cabinet = { profile: null, groups: [], files: [], usage: null, reminders: null };
+  const cabinet = { profile: null, groups: [], presets: [], files: [], usage: null, reminders: null };
   // Документ, для которого открыт выбор файла; файл с открытой панелью ссылок
   // и файл, у которого правится дата.
   let uploadKind = null;
@@ -155,6 +155,14 @@
   function parseDay(value) {
     const [year, month, day] = value.split("-").map(Number);
     return new Date(year, month - 1, day);
+  }
+
+  function plural(count, one, few, many) {
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+    if (mod10 === 1 && mod100 !== 11) return `${count} ${one}`;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${count} ${few}`;
+    return `${count} ${many}`;
   }
 
   function pluralDays(count) {
@@ -643,6 +651,7 @@
     await loadFiles();
     renderDocuments();
     renderReminders();
+    renderPackages();
   }
 
   async function loadCabinet() {
@@ -656,10 +665,12 @@
     const data = await response.json();
     cabinet.profile = data.profile;
     cabinet.groups = data.document_groups;
+    cabinet.presets = data.package_presets || [];
     renderProfile(data.profile);
     await loadFiles();
     renderDocuments();
     renderReminders();
+    choosePreset(cabinet.presets.length ? cabinet.presets[0].id : CUSTOM_PRESET);
   }
 
   // --- Загрузка, скачивание, удаление ----------------------------------------------
@@ -712,20 +723,24 @@
     }
   }
 
+  function saveBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const link = element("a");
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
   async function downloadFile(file) {
     try {
       const response = await authorizedFetch(`${CABINET_API}/v1/documents/${file.id}/content`, {
         headers: { Accept: "*/*" }
       });
       if (!response.ok) throw await failure(response, "Не удалось скачать файл.");
-      const url = URL.createObjectURL(await response.blob());
-      const link = element("a");
-      link.href = url;
-      link.download = file.filename;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      saveBlob(await response.blob(), file.filename);
     } catch (error) {
       reportFileError(error, "Не удалось скачать файл.");
     }
@@ -743,6 +758,266 @@
       await refreshFiles();
     } catch (error) {
       reportFileError(error, "Не удалось удалить файл.");
+    }
+  }
+
+  // --- Пакет документов -------------------------------------------------------------
+  //
+  // Один ZIP с описью из файлов кабинета. Набор (банк, контрагент…) лишь
+  // предлагает, какие файлы отметить: список правит сам пользователь, а
+  // порядок файлов в архиве — порядок на экране.
+
+  const CUSTOM_PRESET = "custom";
+  const packageState = { preset: CUSTOM_PRESET, selected: new Set(), title: "", titleEdited: false };
+  // Узлы итоговой карточки: их обновляет выбор файлов без перерисовки списка.
+  let packageNodes = null;
+
+  function presetById(id) {
+    return cabinet.presets.find((preset) => preset.id === id) || null;
+  }
+
+  // Сначала документы выбранного набора в его порядке, затем остальные — в
+  // порядке каталога; файлы одного документа — по дате загрузки.
+  function packageFiles() {
+    const preset = presetById(packageState.preset);
+    const rank = new Map();
+    (preset ? preset.kinds : []).forEach((kind, index) => rank.set(kind, index));
+    let position = 1000;
+    for (const group of cabinet.groups) {
+      for (const doc of group.documents) if (!rank.has(doc.id)) rank.set(doc.id, position++);
+    }
+    const rankOf = (file) => (rank.has(file.kind) ? rank.get(file.kind) : Number.MAX_SAFE_INTEGER);
+    return [...cabinet.files].sort((a, b) => rankOf(a) - rankOf(b) || a.created_at.localeCompare(b.created_at));
+  }
+
+  function selectedPackageFiles() {
+    return packageFiles().filter((file) => packageState.selected.has(file.id));
+  }
+
+  function defaultPackageTitle() {
+    const preset = presetById(packageState.preset);
+    const base = preset ? preset.title : "Пакет документов";
+    const company = cabinet.profile && cabinet.profile.company_name;
+    return (company ? `${base} — ${company}` : base).slice(0, 120);
+  }
+
+  function choosePreset(id) {
+    packageState.preset = id;
+    const preset = presetById(id);
+    if (preset) {
+      const kinds = new Set(preset.kinds);
+      packageState.selected = new Set(cabinet.files.filter((file) => kinds.has(file.kind)).map((file) => file.id));
+    }
+    if (!packageState.titleEdited) packageState.title = defaultPackageTitle();
+    renderPackages();
+  }
+
+  function presetCard() {
+    const card = element("section", "rounded-[2rem] border border-ink/10 bg-white/90 p-6 sm:p-7");
+    card.append(element("h3", "text-lg font-extrabold tracking-[-.03em]", "Для чего пакет"));
+    const group = element("div", "segmented mt-4 flex-wrap rounded-[1.5rem]");
+    group.setAttribute("role", "radiogroup");
+    group.setAttribute("aria-label", "Набор документов");
+    const options = [...cabinet.presets.map((preset) => [preset.id, preset.title]), [CUSTOM_PRESET, "Свой набор"]];
+    for (const [value, label] of options) {
+      const option = element("label");
+      const input = element("input");
+      input.type = "radio";
+      input.name = "packagePreset";
+      input.value = value;
+      input.checked = value === packageState.preset;
+      input.addEventListener("change", () => choosePreset(value));
+      option.append(input, element("span", "", label));
+      group.append(option);
+    }
+    const preset = presetById(packageState.preset);
+    card.append(
+      group,
+      element(
+        "p",
+        "mt-4 max-w-2xl text-sm font-medium leading-relaxed text-ink/55",
+        preset
+          ? `${preset.purpose} Отметки ниже можно поправить.`
+          : "Отметьте файлы, которые нужны получателю, — в архив они попадут в том порядке, в каком стоят в списке."
+      )
+    );
+    return card;
+  }
+
+  function packageFileRow(file, doc) {
+    const item = element("li");
+    const label = element("label", "flex cursor-pointer items-start gap-3 rounded-3xl bg-paper px-4 py-3 transition hover:bg-ink/5");
+    const box = element("input", "mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-ink");
+    box.type = "checkbox";
+    box.checked = packageState.selected.has(file.id);
+    box.addEventListener("change", () => {
+      if (box.checked) packageState.selected.add(file.id);
+      else packageState.selected.delete(file.id);
+      renderPackageSummary();
+    });
+    const info = element("span", "min-w-0 flex-1");
+    info.append(
+      element("span", "block truncate text-sm font-extrabold", file.filename),
+      element(
+        "span",
+        "mt-0.5 block text-xs font-semibold text-ink/45",
+        `${doc ? doc.title : "Из прежнего набора"} · ${formatBytes(file.size_bytes)}`
+      )
+    );
+    label.append(box, info);
+    const status = deadlineStatus(file, doc);
+    if (status) label.append(element("span", `${CHIP_TONES[status.tone]} hidden shrink-0 sm:inline-flex`, status.text));
+    item.append(label);
+    return item;
+  }
+
+  function filesCard() {
+    const docs = docsById();
+    const files = packageFiles();
+    const card = element("section", "rounded-[2rem] border border-ink/10 bg-white/90 p-6 sm:p-7");
+    const head = element("div", "flex flex-wrap items-center justify-between gap-3");
+    head.append(element("h3", "text-lg font-extrabold tracking-[-.03em]", "Файлы из кабинета"));
+    const allChosen = files.every((file) => packageState.selected.has(file.id));
+    head.append(button(allChosen ? "Снять все" : "Отметить все", BTN_GHOST, () => {
+      packageState.selected = allChosen ? new Set() : new Set(files.map((file) => file.id));
+      renderPackages();
+    }));
+    card.append(head);
+
+    const list = element("ul", "mt-4 space-y-2");
+    for (const file of files) list.append(packageFileRow(file, docs.get(file.kind)));
+    card.append(list);
+
+    const preset = presetById(packageState.preset);
+    if (preset) {
+      const present = new Set(cabinet.files.map((file) => file.kind));
+      const missing = preset.kinds.filter((kind) => !present.has(kind)).map((kind) => docs.get(kind)).filter(Boolean);
+      if (missing.length) {
+        const note = element("div", "mt-4 rounded-3xl bg-[#DDD9FF] px-5 py-4 text-xs font-semibold leading-relaxed text-ink/70");
+        note.append(
+          element("span", "font-extrabold text-ink", "Нет в кабинете: "),
+          `${missing.map((doc) => doc.title).join(", ")}. Если они нужны получателю, `,
+          button("загрузите их", "font-extrabold text-violet underline underline-offset-2", () => selectTab(0, true)),
+          " — и соберите пакет снова."
+        );
+        card.append(note);
+      }
+    }
+    return card;
+  }
+
+  function summaryCard() {
+    const card = element("section", "rounded-[2rem] bg-ink p-6 text-white shadow-soft sm:p-7");
+    const titleLabel = element("label", "block text-[10px] font-extrabold uppercase tracking-[.14em] text-white/50", "Название архива");
+    titleLabel.htmlFor = "packageTitle";
+    const title = element("input", "field mt-2");
+    title.id = "packageTitle";
+    title.maxLength = 120;
+    title.value = packageState.title;
+    title.addEventListener("input", () => {
+      packageState.title = title.value;
+      packageState.titleEdited = true;
+    });
+    const summary = element("p", "mt-5 text-sm font-extrabold");
+    const warning = element("p", "mt-2 hidden text-xs font-semibold leading-relaxed text-[#FFDFA8]");
+    const status = element("p", "mt-3 hidden text-xs font-bold leading-relaxed");
+    status.setAttribute("aria-live", "polite");
+    const download = button("Скачать архив", "btn btn-lime mt-5 w-full sm:w-auto", () => downloadPackage());
+    card.append(
+      titleLabel,
+      title,
+      summary,
+      warning,
+      download,
+      status,
+      element("p", "mt-4 text-xs font-medium leading-relaxed text-white/45", "В архив войдут файлы без изменений — подпись ФНС в выписках сохранится — и опись: что за документы и до какого числа они действуют.")
+    );
+    packageNodes = { summary, warning, status, download };
+    return card;
+  }
+
+  function renderPackageSummary() {
+    if (!packageNodes) return;
+    const chosen = selectedPackageFiles();
+    const size = chosen.reduce((sum, file) => sum + file.size_bytes, 0);
+    const limits = cabinet.usage || {};
+    const tooMany = limits.max_package_documents && chosen.length > limits.max_package_documents;
+    const tooLarge = limits.max_package_bytes && size > limits.max_package_bytes;
+    packageNodes.summary.textContent = chosen.length
+      ? `${plural(chosen.length, "файл", "файла", "файлов")} · ${formatBytes(size)}`
+      : "Отметьте хотя бы один файл";
+    packageNodes.download.disabled = !chosen.length || tooMany || tooLarge;
+
+    const docs = docsById();
+    const problems = [];
+    if (tooMany) problems.push(`В пакете может быть не больше ${limits.max_package_documents} файлов.`);
+    if (tooLarge) problems.push(`Архив больше ${formatBytes(limits.max_package_bytes)} — разделите его на части.`);
+    const stale = chosen.filter((file) => file.days_left !== null && file.days_left < 0);
+    if (stale.length) {
+      const names = stale.map((file) => (docs.get(file.kind) || { title: file.filename }).title);
+      problems.push(`Срок вышел: ${[...new Set(names)].join(", ")}. Обновите документ, прежде чем отправлять.`);
+    }
+    packageNodes.warning.textContent = problems.join(" ");
+    packageNodes.warning.classList.toggle("hidden", !problems.length);
+  }
+
+  function renderPackages() {
+    const builder = $("packageBuilder");
+    const hasFiles = cabinet.files.length > 0;
+    $("packageEmpty").classList.toggle("hidden", hasFiles);
+    builder.classList.toggle("hidden", !hasFiles);
+    builder.replaceChildren();
+    packageNodes = null;
+    if (!hasFiles) return;
+    // Удалённые файлы из выбора убираем.
+    const existing = new Set(cabinet.files.map((file) => file.id));
+    for (const id of [...packageState.selected]) if (!existing.has(id)) packageState.selected.delete(id);
+    builder.append(presetCard(), filesCard(), summaryCard());
+    renderPackageSummary();
+  }
+
+  function packageStatus(text, tone) {
+    const node = packageNodes && packageNodes.status;
+    if (!node) return;
+    node.textContent = text;
+    node.className = `mt-3 text-xs font-bold leading-relaxed ${tone === "error" ? "text-red-300" : "text-lime"}`;
+  }
+
+  async function downloadPackage() {
+    const chosen = selectedPackageFiles();
+    if (!chosen.length || !packageNodes) return;
+    const title = packageState.title.trim() || "Пакет документов";
+    const trigger = packageNodes.download;
+    trigger.disabled = true;
+    trigger.textContent = "Собираем архив…";
+    packageStatus("", "success");
+    try {
+      const response = await authorizedFetch(`${CABINET_API}/v1/packages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, document_ids: chosen.map((file) => file.id) })
+      });
+      if (!response.ok) throw await failure(response, "Не удалось собрать архив.");
+      let blob;
+      try {
+        blob = await response.blob();
+      } catch {
+        // Архив идёт потоком: если файл не прочитался посреди архива, ответ обрывается.
+        throw new Error("Архив оборвался при скачивании. Попробуйте ещё раз через минуту.");
+      }
+      saveBlob(blob, `${title}.zip`);
+      packageStatus(`Архив скачан: ${plural(chosen.length, "файл", "файла", "файлов")} и опись.`, "success");
+    } catch (error) {
+      if (error instanceof SessionExpired) {
+        showGuest("Сессия истекла. Войдите снова.");
+        return;
+      }
+      packageStatus(error.message || "Не удалось собрать архив.", "error");
+    } finally {
+      if (packageNodes && packageNodes.download === trigger) {
+        trigger.textContent = "Скачать архив";
+        renderPackageSummary();
+      }
     }
   }
 
@@ -810,9 +1085,12 @@
 
   const TABS = [
     { tab: "tabDocuments", panel: "panelDocuments", hash: "#documents" },
+    { tab: "tabPackages", panel: "panelPackages", hash: "#packages" },
     { tab: "tabActions", panel: "panelActions", hash: "#actions" },
     { tab: "tabAccount", panel: "panelAccount", hash: "#account" }
   ];
+  const ACCOUNT_TAB = TABS.findIndex((entry) => entry.hash === "#account");
+  const PACKAGES_TAB = TABS.findIndex((entry) => entry.hash === "#packages");
 
   function selectTab(index, focus = false) {
     TABS.forEach((entry, position) => {
@@ -868,7 +1146,7 @@
     showState("stateUser");
     // Вернулись из Keycloak после действия с аккаунтом — показываем результат
     // там, где он виден: на вкладке «Аккаунт».
-    selectTab(pendingAction ? 2 : tabFromHash());
+    selectTab(pendingAction ? ACCOUNT_TAB : tabFromHash());
     reportAction();
 
     try {
@@ -897,6 +1175,7 @@
       renderDocuments();
     });
     $("retryButton").addEventListener("click", () => location.reload());
+    $("packagesShortcut").addEventListener("click", () => selectTab(PACKAGES_TAB, true));
     bindTabs();
   }
 
