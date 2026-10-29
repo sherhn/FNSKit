@@ -9,6 +9,7 @@ import hashlib
 import os
 import unittest
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import httpx
@@ -43,29 +44,35 @@ class SignatureTest(unittest.TestCase):
         )
 
 
+def streamed(status: int, headers: dict[str, str] | None = None, content: bytes | str = b"") -> httpx.Response:
+    """Ответ, как от настоящего хранилища: тело ещё не прочитано и идёт потоком."""
+    body = content.encode() if isinstance(content, str) else content
+    return httpx.Response(status, headers=headers, stream=httpx.ByteStream(body))
+
+
 class FakeS3:
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
         self.objects: dict[str, bytes] = {}
-        self.respond: httpx.Response | None = None
+        self.respond: Callable[[], httpx.Response] | None = None
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         if self.respond is not None:
-            return self.respond
+            # Каждому запросу — свой ответ: поток читается только один раз.
+            return self.respond()
         path = request.url.path
         if request.method == "PUT":
             self.objects[path] = request.content
-            return httpx.Response(200)
+            return streamed(200)
         if request.method == "GET":
             if path not in self.objects:
-                return httpx.Response(404, headers={"content-type": "application/xml"},
-                                      text="<Error><Code>NoSuchKey</Code></Error>")
-            return httpx.Response(200, content=self.objects[path])
+                return streamed(404, {"content-type": "application/xml"}, "<Error><Code>NoSuchKey</Code></Error>")
+            return streamed(200, content=self.objects[path])
         if request.method == "DELETE":
             self.objects.pop(path, None)
-            return httpx.Response(204)
-        return httpx.Response(200)
+            return streamed(204)
+        return streamed(200)
 
 
 class S3ObjectStoreTest(unittest.IsolatedAsyncioTestCase):
@@ -110,11 +117,33 @@ class S3ObjectStoreTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(StorageUnavailable):
             await store.get("documents/big", 999)
 
+    async def test_compressed_answer_is_not_inflated(self) -> None:
+        # Сжатый ответ не разворачивается: предел считается по сырым байтам, а
+        # хранилище просим отвечать без сжатия.
+        import gzip
+
+        bomb = gzip.compress(bytes(5 * 1024 * 1024))
+        self.s3.respond = lambda: streamed(200, {"content-encoding": "gzip"}, bomb)
+        store = self.store()
+        with self.assertRaises(StorageUnavailable):
+            await store.get("documents/abc", len(bomb) - 1)
+        self.assertEqual(await store.get("documents/abc", len(bomb)), bomb)
+        self.assertEqual(self.s3.requests[-1].headers["accept-encoding"], "identity")
+        self.assertNotIn("accept-encoding", self.s3.requests[-1].headers["authorization"])
+
+    async def test_huge_error_body_is_not_read_whole(self) -> None:
+        body = "<Error><Code>SlowDown</Code>" + "x" * (10 * 1024 * 1024) + "</Error>"
+        self.s3.respond = lambda: streamed(503, {"content-type": "application/xml"}, body)
+        with self.assertRaises(StorageUnavailable) as caught:
+            await self.store().put("documents/abc", b"x")
+        self.assertIn("SlowDown", str(caught.exception))
+        self.assertLess(len(str(caught.exception)), 200)
+
     async def test_errors_become_storage_unavailable(self) -> None:
         store = self.store()
-        self.s3.respond = httpx.Response(
-            403, headers={"content-type": "application/xml"},
-            text="<Error><Code>SignatureDoesNotMatch</Code><Message>secret details</Message></Error>",
+        self.s3.respond = lambda: streamed(
+            403, {"content-type": "application/xml"},
+            "<Error><Code>SignatureDoesNotMatch</Code><Message>secret details</Message></Error>",
         )
         with self.assertRaises(StorageUnavailable) as caught:
             await store.put("documents/abc", b"x")
@@ -139,7 +168,7 @@ class S3ObjectStoreTest(unittest.IsolatedAsyncioTestCase):
     async def test_ensure_bucket(self) -> None:
         store = self.store()
         await store.ensure_bucket(create=False)  # HEAD 200 — бакет есть
-        self.s3.respond = httpx.Response(404)
+        self.s3.respond = lambda: httpx.Response(404)
         with self.assertRaises(StorageUnavailable):
             await store.ensure_bucket(create=False)  # в продакшене не создаём
 

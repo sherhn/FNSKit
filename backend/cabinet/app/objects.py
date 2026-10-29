@@ -22,6 +22,8 @@ import httpx
 
 ALGORITHM = "AWS4-HMAC-SHA256"
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
+# Из ответа с ошибкой нужен только код в начале XML.
+ERROR_BODY_LIMIT = 4096
 
 
 class StorageUnavailable(Exception):
@@ -146,8 +148,9 @@ class S3ObjectStore:
         key: str | None,
         body: bytes = b"",
         params: dict[str, str] | None = None,
-        stream: bool = False,
     ) -> httpx.Response:
+        """Ответ всегда потоковый: тело читает вызывающий, с пределом, и
+        закрывает ответ."""
         params = params or {}
         url = self._url(key)
         payload_sha256 = hashlib.sha256(body).hexdigest() if body else EMPTY_SHA256
@@ -170,74 +173,92 @@ class S3ObjectStore:
             self._region,
             now,
         )
+        # Без сжатия: предел читаемого считается по байтам из сети, и сжатый
+        # ответ не развернётся в памяти во что-то большее.
+        headers["accept-encoding"] = "identity"
         request = self._client.build_request(
             method, url, params=params or None, content=body or None, headers=headers, timeout=self._timeout
         )
         try:
-            return await self._client.send(request, stream=stream)
+            return await self._client.send(request, stream=True)
         except httpx.HTTPError as error:
             # Текст ошибки httpx содержит адрес хранилища — наружу он не уходит,
             # только в журнал через цепочку исключений.
             raise StorageUnavailable(f"{method} {key or self._bucket}: {type(error).__name__}") from error
 
     @staticmethod
-    def _failure(response: httpx.Response, action: str) -> StorageUnavailable:
+    async def _read(response: httpx.Response, limit: int) -> tuple[bytes, bool]:
+        """Тело ответа, но не больше limit байт; второе значение — обрезано ли.
+        Читаются сырые байты: Content-Encoding хранилищу не доверяем."""
+        data = bytearray()
+        async for chunk in response.aiter_raw():
+            data += chunk
+            if len(data) > limit:
+                return bytes(data[:limit]), True
+        return bytes(data), False
+
+    async def _failure(self, response: httpx.Response, action: str) -> StorageUnavailable:
         # Тело ответа S3 — XML с кодом ошибки; в журнал хватит статуса и кода.
         code = ""
         if response.headers.get("content-type", "").startswith(("application/xml", "text/xml")):
-            text = response.text
+            try:
+                head, _ = await self._read(response, ERROR_BODY_LIMIT)
+            except httpx.HTTPError:
+                head = b""
+            text = head.decode("utf-8", "replace")
             start, end = text.find("<Code>"), text.find("</Code>")
             if 0 <= start < end:
                 code = " " + text[start + 6 : end][:64]
         return StorageUnavailable(f"{action}: HTTP {response.status_code}{code}")
 
+    async def _expect(self, response: httpx.Response, action: str, ok: tuple[int, ...]) -> None:
+        try:
+            if response.status_code not in ok:
+                raise await self._failure(response, action)
+        finally:
+            await response.aclose()
+
     async def put(self, key: str, data: bytes) -> None:
-        response = await self._request("PUT", key, body=data)
-        if response.status_code != 200:
-            raise self._failure(response, f"PUT {key}")
+        await self._expect(await self._request("PUT", key, body=data), f"PUT {key}", (200,))
 
     async def get(self, key: str, max_bytes: int) -> bytes:
-        response = await self._request("GET", key, stream=True)
+        response = await self._request("GET", key)
         try:
             if response.status_code == 404:
                 raise ObjectMissing(key)
             if response.status_code != 200:
-                await response.aread()
-                raise self._failure(response, f"GET {key}")
+                raise await self._failure(response, f"GET {key}")
             # Хранилищу тоже не доверяем вслепую: объект больше предела
             # кабинета взяться неоткуда, и читать его целиком в память незачем.
-            data = bytearray()
-            async for chunk in response.aiter_bytes():
-                data += chunk
-                if len(data) > max_bytes:
-                    raise StorageUnavailable(f"GET {key}: объект больше {max_bytes} байт")
-            return bytes(data)
+            data, truncated = await self._read(response, max_bytes)
+            if truncated:
+                raise StorageUnavailable(f"GET {key}: объект больше {max_bytes} байт")
+            return data
         except httpx.HTTPError as error:
             raise StorageUnavailable(f"GET {key}: {type(error).__name__}") from error
         finally:
             await response.aclose()
 
     async def delete(self, key: str) -> None:
-        response = await self._request("DELETE", key)
         # Удаление отсутствующего объекта в S3 — тоже 204: повтор безопасен.
-        if response.status_code not in (200, 204, 404):
-            raise self._failure(response, f"DELETE {key}")
+        await self._expect(await self._request("DELETE", key), f"DELETE {key}", (200, 204, 404))
 
     async def ensure_bucket(self, create: bool) -> None:
         """Проверить бакет; в разработке — создать, если его ещё нет. В
         продакшене бакет и его политика заводятся заранее, а у ключа кабинета
         прав на создание бакетов быть не должно."""
         response = await self._request("HEAD", None)
-        if response.status_code == 200:
-            return
-        if response.status_code != 404 or not create:
-            raise self._failure(response, f"HEAD {self._bucket}")
+        try:
+            if response.status_code == 200:
+                return
+            if response.status_code != 404 or not create:
+                raise await self._failure(response, f"HEAD {self._bucket}")
+        finally:
+            await response.aclose()
         body = b""
         if self._region != "us-east-1":
             body = (
                 '<CreateBucketConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
                 f"<LocationConstraint>{self._region}</LocationConstraint></CreateBucketConfiguration>"
             ).encode()
-        response = await self._request("PUT", None, body=body)
-        if response.status_code not in (200, 409):
-            raise self._failure(response, f"PUT {self._bucket}")
+        await self._expect(await self._request("PUT", None, body=body), f"PUT {self._bucket}", (200, 409))
