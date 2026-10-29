@@ -768,7 +768,9 @@
   // порядок файлов в архиве — порядок на экране.
 
   const CUSTOM_PRESET = "custom";
-  const packageState = { preset: CUSTOM_PRESET, selected: new Set(), title: "", titleEdited: false };
+  // known — файлы, которые экран уже видел: новые файлы документов набора
+  // отмечаются сами, а снятые вручную отметки не возвращаются.
+  const packageState = { preset: CUSTOM_PRESET, selected: new Set(), known: new Set(), title: "", titleEdited: false };
   // Узлы итоговой карточки: их обновляет выбор файлов без перерисовки списка.
   let packageNodes = null;
 
@@ -815,7 +817,7 @@
   function presetCard() {
     const card = element("section", "rounded-[2rem] border border-ink/10 bg-white/90 p-6 sm:p-7");
     card.append(element("h3", "text-lg font-extrabold tracking-[-.03em]", "Для чего пакет"));
-    const group = element("div", "segmented mt-4 flex-wrap rounded-[1.5rem]");
+    const group = element("div", "chips mt-4");
     group.setAttribute("role", "radiogroup");
     group.setAttribute("aria-label", "Набор документов");
     const options = [...cabinet.presets.map((preset) => [preset.id, preset.title]), [CUSTOM_PRESET, "Свой набор"]];
@@ -866,7 +868,11 @@
     );
     label.append(box, info);
     const status = deadlineStatus(file, doc);
-    if (status) label.append(element("span", `${CHIP_TONES[status.tone]} hidden shrink-0 sm:inline-flex`, status.text));
+    if (status) {
+      // На узком экране плашка уходит под название, на широком — вправо.
+      info.append(element("span", `${CHIP_TONES[status.tone]} mt-2 sm:hidden`, status.text));
+      label.append(element("span", `${CHIP_TONES[status.tone]} hidden shrink-0 sm:inline-flex`, status.text));
+    }
     item.append(label);
     return item;
   }
@@ -893,13 +899,13 @@
       const present = new Set(cabinet.files.map((file) => file.kind));
       const missing = preset.kinds.filter((kind) => !present.has(kind)).map((kind) => docs.get(kind)).filter(Boolean);
       if (missing.length) {
-        const note = element("div", "mt-4 rounded-3xl bg-[#DDD9FF] px-5 py-4 text-xs font-semibold leading-relaxed text-ink/70");
-        note.append(
+        const note = element("div", "mt-4 rounded-3xl bg-[#DDD9FF] px-5 py-4");
+        const text = element("p", "text-xs font-semibold leading-relaxed text-ink/70");
+        text.append(
           element("span", "font-extrabold text-ink", "Нет в кабинете: "),
-          `${missing.map((doc) => doc.title).join(", ")}. Если они нужны получателю, `,
-          button("загрузите их", "font-extrabold text-violet underline underline-offset-2", () => selectTab(0, true)),
-          " — и соберите пакет снова."
+          `${missing.map((doc) => doc.title).join(", ")}. Если они нужны получателю, загрузите их — и соберите пакет снова.`
         );
+        note.append(text, button("Загрузить документы", `${BTN_SECONDARY} mt-3`, () => selectTab(0, true)));
         card.append(note);
       }
     }
@@ -969,9 +975,14 @@
     builder.replaceChildren();
     packageNodes = null;
     if (!hasFiles) return;
-    // Удалённые файлы из выбора убираем.
+    // Удалённые файлы из выбора убираем, новые файлы документов набора отмечаем.
     const existing = new Set(cabinet.files.map((file) => file.id));
     for (const id of [...packageState.selected]) if (!existing.has(id)) packageState.selected.delete(id);
+    const preset = presetById(packageState.preset);
+    for (const file of cabinet.files) {
+      if (!packageState.known.has(file.id) && preset && preset.kinds.includes(file.kind)) packageState.selected.add(file.id);
+    }
+    packageState.known = existing;
     builder.append(presetCard(), filesCard(), summaryCard());
     renderPackageSummary();
   }

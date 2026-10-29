@@ -70,6 +70,33 @@
     @apply ring-4 ring-violet/30;
   }
 
+  /*
+   * Тот же выбор одного варианта, но для длинного списка: каждая «таблетка»
+   * отдельно и переносится на новую строку целиком, без общей рамки, которая
+   * на двух строках выглядела бы кривым овалом.
+   */
+  .chips {
+    @apply flex flex-wrap gap-2;
+  }
+  .chips label {
+    @apply relative cursor-pointer;
+  }
+  .chips input {
+    @apply sr-only;
+  }
+  .chips span {
+    @apply block rounded-full border border-ink/15 bg-white px-4 py-2 text-xs font-extrabold text-ink/60 transition;
+  }
+  .chips label:hover span {
+    @apply border-ink/40 text-ink;
+  }
+  .chips input:checked + span {
+    @apply border-ink bg-ink text-white;
+  }
+  .chips input:focus-visible + span {
+    @apply ring-4 ring-violet/30;
+  }
+
   /* Переключатель «включено / выключено». */
   .switch {
     @apply relative h-7 w-12 shrink-0 rounded-full bg-ink/20 outline-none transition focus-visible:ring-4 focus-visible:ring-violet/30;
