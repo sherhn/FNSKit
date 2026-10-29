@@ -9,11 +9,19 @@ from typing import Annotated, Literal
 import httpx
 from cryptography.exceptions import InvalidTag
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
-from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from app.auth import JwksCache, KeysUnavailable, Principal, TokenError, TokenVerifier
 from app.config import get_settings
-from app.documents import BUSINESS_TYPE_LABELS, KINDS_BY_ID, DocumentKind, documents_for, due_date
+from app.documents import (
+    BUSINESS_TYPE_LABELS,
+    KINDS_BY_ID,
+    DocumentKind,
+    documents_for,
+    due_date,
+    presets_for,
+)
 from app import reminders
 from app.share_page import render_landing
 from app.files import (
@@ -29,6 +37,7 @@ from app.files import (
     token_hash,
 )
 from app.objects import ObjectMissing, ObjectStore, S3ObjectStore, StorageUnavailable
+from app.packages import inventory, package_entries, stream_package
 from app.store import (
     ContentRef,
     DocumentStore,
@@ -276,10 +285,19 @@ class DocumentGroupOut(BaseModel):
     documents: list[DocumentOut]
 
 
+class PackagePresetOut(BaseModel):
+    id: str
+    title: str
+    purpose: str
+    kinds: list[str]
+
+
 class MeResponse(BaseModel):
     profile: Profile
     # Пусто, пока в профиле не указана форма бизнеса.
     document_groups: list[DocumentGroupOut]
+    # Типичные наборы для пакета документов; тоже только при форме бизнеса.
+    package_presets: list[PackagePresetOut] = []
 
 
 @app.get("/health/live")
@@ -293,7 +311,12 @@ async def me(user: CurrentUser, response: Response) -> MeResponse:
     # кешировать.
     response.headers["Cache-Control"] = "no-store"
     groups: list[DocumentGroupOut] = []
+    presets: list[PackagePresetOut] = []
     if user.business_type is not None:
+        presets = [
+            PackagePresetOut(id=preset.id, title=preset.title, purpose=preset.purpose, kinds=list(preset.kinds))
+            for preset in presets_for(user.business_type)
+        ]
         groups = [
             DocumentGroupOut(
                 id=group.id,
@@ -328,6 +351,7 @@ async def me(user: CurrentUser, response: Response) -> MeResponse:
             company_name=user.company_name,
         ),
         document_groups=groups,
+        package_presets=presets,
     )
 
 
@@ -382,6 +406,8 @@ class UsageOut(BaseModel):
     max_count: int
     max_size_bytes: int
     max_file_bytes: int
+    max_package_documents: int
+    max_package_bytes: int
 
 
 class RemindersOut(BaseModel):
@@ -548,6 +574,8 @@ async def list_files(user: CurrentUser, store: Store, response: Response) -> Fil
             max_count=settings.max_documents_per_user,
             max_size_bytes=settings.max_storage_bytes_per_user,
             max_file_bytes=settings.max_document_bytes,
+            max_package_documents=settings.max_package_documents,
+            max_package_bytes=settings.max_package_bytes,
         ),
         reminders=RemindersOut(
             available=reminders_available(),
@@ -736,6 +764,99 @@ async def revoke_share_link(link_id: str, user: CurrentUser, store: Store) -> Re
     if not await store.delete_link(user.subject, link_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ссылка не найдена.")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- Пакет документов ------------------------------------------------------------
+
+
+class PackageRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=120)
+    # Порядок — порядок файлов в архиве и в описи.
+    document_ids: list[str] = Field(min_length=1, max_length=100)
+
+
+# Владельцы, чей архив сейчас собирается: один пакет за раз на аккаунт, чтобы
+# один пользователь не занял все места передачи параллельными архивами.
+# Процесс один (uvicorn --workers 1), поэтому множества в памяти достаточно.
+packages_in_progress: set[str] = set()
+
+
+@app.post("/v1/packages", response_class=StreamingResponse)
+async def build_package(
+    body: PackageRequest, user: CurrentUser, store: Store, cipher: Cipher, objects: Objects
+) -> StreamingResponse:
+    """Один ZIP из выбранных файлов кабинета и опись к нему. Архив идёт
+    потоком: первый файл читается до ответа (ошибка хранилища — честный 503),
+    остальные — по мере отдачи."""
+    ids = body.document_ids
+    if len(ids) > settings.max_package_documents:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"В пакете может быть не больше {settings.max_package_documents} файлов.",
+        )
+    if len(set(ids)) != len(ids):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Один и тот же файл выбран дважды."
+        )
+    found = await store.get_documents(user.subject, ids)
+    if len(found) != len(ids):
+        raise not_found()
+    total = sum(document.size_bytes for document, _ in found)
+    if total > settings.max_package_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=f"Пакет больше {settings.max_package_bytes // (1024 * 1024)} МБ — разделите его на части.",
+        )
+    if user.subject in packages_in_progress:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Предыдущий архив ещё собирается — дождитесь, пока он скачается.",
+        )
+
+    contents = {document.id: content_ref for document, content_ref in found}
+    entries = package_entries([document for document, _ in found])
+    title = (body.title or "").strip() or "Пакет документов"
+    built_at = datetime.now(UTC)
+
+    async def read(document: StoredDocument) -> bytes:
+        async with transfer_slots:
+            return await read_content(objects, cipher, document, contents[document.id])
+
+    packages_in_progress.add(user.subject)
+    try:
+        first = await read(entries[0].document)
+    except BaseException:
+        packages_in_progress.discard(user.subject)
+        raise
+
+    async def prefetched(document: StoredDocument) -> bytes:
+        nonlocal first
+        if first is not None and document is entries[0].document:
+            content, first = first, None
+            return content
+        return await read(document)
+
+    async def body_chunks():
+        try:
+            async for chunk in stream_package(
+                entries, prefetched, inventory(title, user.company_name, entries, built_at), built_at
+            ):
+                yield chunk
+        except Exception:
+            logger.exception("Архив оборван: не удалось прочитать файл пакета")
+            raise
+        finally:
+            packages_in_progress.discard(user.subject)
+
+    return StreamingResponse(
+        body_chunks(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": content_disposition(clean_filename(f"{title}.zip")),
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 def link_expired() -> HTTPException:

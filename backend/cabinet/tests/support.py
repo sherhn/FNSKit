@@ -216,6 +216,14 @@ class MemoryStore:
             return None
         return document, self.contents[document_id]
 
+    async def get_documents(self, owner: str, document_ids: list[str]):
+        found = []
+        for document_id in document_ids:
+            document = self.documents.get(document_id)
+            if document is not None and document.owner == owner:
+                found.append((document, self.contents[document_id]))
+        return found
+
     async def delete_document(self, owner: str, document_id: str):
         document = self.documents.get(document_id)
         if document is None or document.owner != owner:

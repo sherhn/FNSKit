@@ -385,6 +385,76 @@ DOCUMENTS: tuple[DocumentKind, ...] = tuple(
 KINDS_BY_ID: dict[str, DocumentKind] = {kind.id: kind for kind in DOCUMENTS}
 
 
+@dataclass(frozen=True)
+class PackagePreset:
+    """Типичный набор документов под запрос: из него кабинет предлагает,
+    какие файлы положить в архив. Это подсказка, а не требование — у банка или
+    контрагента список может быть другим, файлы пользователь выбирает сам."""
+
+    id: str
+    title: str
+    purpose: str
+    # Документы обеих форм бизнеса; для ИП и ООО остаются только свои.
+    kinds: tuple[str, ...]
+
+
+# Порядок документов в наборе — порядок файлов в архиве и в описи.
+PACKAGE_PRESETS: tuple[PackagePreset, ...] = (
+    PackagePreset(
+        id="bank_account",
+        title="Открытие счёта в банке",
+        purpose=(
+            "Регистрация, полномочия руководителя, адрес и паспорт — с этим банки "
+            "открывают расчётный счёт. Точный список уточните в своём банке."
+        ),
+        kinds=(
+            "egrip_record", "egrip_extract", "ip_tax_regime", "passport_ip",
+            "egrul_record", "egrul_extract", "charter", "founding_decision", "participants_list",
+            "director_appointment", "legal_address", "passport_director",
+        ),
+    ),
+    PackagePreset(
+        id="counterparty",
+        title="Проверка контрагентом",
+        purpose=(
+            "Регистрация, полномочия подписанта и реквизиты — так контрагент "
+            "проверяет вас перед договором."
+        ),
+        kinds=(
+            "egrip_record", "egrip_extract", "ip_inn_certificate",
+            "egrul_record", "egrul_extract", "charter", "director_appointment", "ooo_tax_registration",
+            "power_of_attorney", "bank_details",
+        ),
+    ),
+    PackagePreset(
+        id="authority",
+        title="Подтверждение полномочий",
+        purpose="Кто подписывает документы и на каком основании — для банка, ФНС или оператора ЭДО.",
+        kinds=(
+            "egrip_extract", "egrul_extract", "director_appointment", "power_of_attorney",
+            "signature_certificate", "passport_ip", "passport_director",
+        ),
+    ),
+    PackagePreset(
+        id="support",
+        title="Господдержка и закупки",
+        purpose="Категория МСП, коды статистики и реквизиты — для льгот, господдержки и закупок.",
+        kinds=(
+            "egrip_extract", "egrul_extract", "msp_register", "rosstat_codes", "charter",
+            "director_appointment", "licenses", "bank_details",
+        ),
+    ),
+)
+
+
+def presets_for(business_type: BusinessType) -> list[PackagePreset]:
+    """Наборы для формы бизнеса: в каждом — только документы её каталога."""
+    return [
+        replace(preset, kinds=tuple(k for k in preset.kinds if business_type in KINDS_BY_ID[k].business_types))
+        for preset in PACKAGE_PRESETS
+    ]
+
+
 def due_date(kind: DocumentKind, doc_date: date | None) -> date | None:
     """Когда документ перестаёт быть действующим или свежим."""
     if doc_date is None or kind.date_kind is None:

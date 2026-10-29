@@ -92,6 +92,10 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: SecretStr = SecretStr("")
     share_link_max_days: int = Field(default=30, ge=1, le=365)
+    # Пакет документов — один ZIP из файлов кабинета. Собирается потоком, по
+    # файлу за раз, поэтому предел держит не память, а время скачивания.
+    max_package_documents: int = Field(default=50, ge=1, le=100)
+    max_package_bytes: int = Field(default=100 * 1024 * 1024, ge=1024)
     expired_links_sweep_minutes: int = Field(default=60, ge=1)
 
 

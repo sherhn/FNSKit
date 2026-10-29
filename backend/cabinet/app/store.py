@@ -117,6 +117,10 @@ class DocumentStore(Protocol):
 
     async def delete_document(self, owner: str, document_id: str) -> ContentRef | None: ...
 
+    async def get_documents(
+        self, owner: str, document_ids: list[str]
+    ) -> list[tuple[StoredDocument, ContentRef]]: ...
+
     async def create_link(
         self, owner: str, document_id: str, token_hash: bytes, expires_at: datetime,
         max_downloads: int | None = None,
@@ -356,6 +360,24 @@ class PostgresStore:
                 key, owner,
             )
         return (_document(row), _content(row)) if row else None
+
+    async def get_documents(self, owner: str, document_ids: list[str]) -> list[tuple[StoredDocument, ContentRef]]:
+        """Документы владельца в порядке document_ids; чужие и несуществующие
+        молча пропускаются — сравнить длину списков должен вызывающий."""
+        keys = [key for key in map(_uuid, document_ids) if key is not None]
+        if not keys:
+            return []
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(
+                f"""
+                SELECT {_DOCUMENT_COLUMNS}, {_CONTENT_COLUMNS}
+                FROM documents d LEFT JOIN document_contents c ON c.document_id = d.id
+                WHERE d.owner = $1 AND d.id = ANY($2::uuid[])
+                """,
+                owner, keys,
+            )
+        found = {row["id"]: (_document(row), _content(row)) for row in rows}
+        return [found[key] for key in keys if key in found]
 
     async def delete_document(self, owner: str, document_id: str) -> ContentRef | None:
         """Удалить запись (ссылки и старое содержимое уходят каскадом), а её
