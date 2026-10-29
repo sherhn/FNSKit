@@ -109,6 +109,18 @@ class FilesApiTest(unittest.TestCase):
         self.assertEqual(self.upload(kind="unknown").status_code, 422)
         self.assertEqual(self.upload(kind="charter", business_type="ooo").status_code, 201)
 
+    def test_other_documents_for_both_business_types(self) -> None:
+        # Сюда редактор сохраняет готовые TIFF и PDF: ответы на требования,
+        # файлы для регистрации.
+        tiff = b"II*\x00" + b"\x00" * 100
+        for business_type in ("ip", "ooo"):
+            response = self.upload(content=tiff, kind="other", filename="Ответ на требование.tiff",
+                                   business_type=business_type)
+            self.assertEqual(response.status_code, 201, response.text)
+            self.assertEqual(response.json()["content_type"], "image/tiff")
+        zip_archive = self.upload(content=b"PK\x03\x04" + b"\x00" * 100, kind="other", filename="страницы.zip")
+        self.assertEqual(zip_archive.status_code, 415)
+
     def test_business_type_is_required(self) -> None:
         self.assertEqual(self.upload(business_type=None).status_code, 409)
 

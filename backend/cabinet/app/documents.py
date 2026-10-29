@@ -76,6 +76,7 @@ GROUPS: tuple[DocumentGroup, ...] = (
     DocumentGroup("authority", "Подпись и полномочия"),
     DocumentGroup("operations", "Адрес, банк и лицензии"),
     DocumentGroup("identity", "Личные документы"),
+    DocumentGroup("other", "Другие документы"),
 )
 
 _BASE_DOCUMENTS: tuple[DocumentKind, ...] = (
@@ -360,6 +361,19 @@ _BASE_DOCUMENTS: tuple[DocumentKind, ...] = (
         level=Level.SITUATIONAL,
         business_types=OOO,
         note="Это персональные данные: держите копию в кабинете, только если она нужна под рукой.",
+    ),
+    # --- Другие документы ---
+    DocumentKind(
+        id="other",
+        group="other",
+        title="Другие документы",
+        purpose=(
+            "Всё, что не входит в постоянный набор: ответы на требования ФНС, файлы для "
+            "регистрации, сканы договоров и писем."
+        ),
+        source="Сохраните готовый файл из редактора ФНСКит или загрузите его сюда.",
+        level=Level.SITUATIONAL,
+        business_types=BOTH,
     ),
 )
 
