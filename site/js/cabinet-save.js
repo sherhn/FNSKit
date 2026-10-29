@@ -23,7 +23,8 @@
   // первым байтам; ZIP со страницами в их число не входит.
   const SAVABLE_FORMATS = new Set(["TIFF", "PDF", "PDF/A"]);
 
-  const BTN = "inline-flex items-center justify-center rounded-full px-4 py-2.5 text-xs font-extrabold leading-none transition disabled:cursor-not-allowed disabled:opacity-40";
+  // Кнопки и список — как у остальных элементов боковой панели редактора.
+  const BTN = "inline-flex items-center justify-center rounded-xl px-4 py-3 text-sm font-extrabold leading-none transition disabled:cursor-not-allowed disabled:opacity-40";
 
   let keycloak = null;
   let current = null; // { file, filename }
@@ -169,7 +170,10 @@
 
   function showOffer() {
     const { root, body } = ensureBlock();
-    const save = element("button", `${BTN} w-full bg-white text-ink hover:bg-lime`, "Сохранить в кабинет");
+    const save = element("button", `${BTN} w-full justify-between bg-white text-ink hover:bg-lime`, "Сохранить в кабинет");
+    const chevron = element("span", "action-chevron action-chevron--centered", ">");
+    chevron.setAttribute("aria-hidden", "true");
+    save.append(chevron);
     save.type = "button";
     save.addEventListener("click", () => startSaving(save));
     body.replaceChildren(
@@ -222,7 +226,7 @@
 
     const label = element("label", "block text-[10px] font-extrabold uppercase tracking-[.12em] text-white/40", "Куда положить");
     label.htmlFor = "cabinetSaveKind";
-    const select = element("select", "field field-sm mt-2");
+    const select = element("select", "custom-select mt-2 w-full rounded-xl border border-white/10 bg-white px-4 py-3 text-sm font-extrabold text-ink outline-none transition focus:border-violet focus:ring-4 focus:ring-violet/20");
     select.id = "cabinetSaveKind";
     for (const group of me.document_groups) {
       const optgroup = element("optgroup");
