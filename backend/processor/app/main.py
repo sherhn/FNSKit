@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from slowapi.errors import RateLimitExceeded
 from starlette.background import BackgroundTask
 from starlette.datastructures import FormData
@@ -19,11 +19,13 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 from app.config import get_settings
 from app.contracts import (
     OutputFormat,
+    PageSpec,
     ProcessingError,
     ProcessingOptions,
     ProcessingResult,
     Profile,
 )
+from app.inspector import inspect_document
 from app.isolated_processing import process_documents_isolated
 from app.ratelimit import build_limiter, rate_limit_handler
 from app.workspace import (
@@ -129,7 +131,7 @@ app.add_middleware(
 def parse_page_order(
     raw_order: str | None,
     max_pages: int | None = None,
-) -> list[tuple[int, int]] | None:
+) -> list[PageSpec] | None:
     page_limit = settings.max_pages if max_pages is None else max_pages
     if raw_order is None:
         return None
@@ -152,7 +154,7 @@ def parse_page_order(
             detail=f"В одном документе может быть не больше {page_limit} страниц.",
         )
 
-    page_order: list[tuple[int, int]] = []
+    page_order: list[PageSpec] = []
     for item in decoded:
         if not isinstance(item, dict):
             raise HTTPException(
@@ -161,17 +163,21 @@ def parse_page_order(
             )
         source_index = item.get("source_index")
         page_number = item.get("page_number")
+        rotation = item.get("rotation", 0)
         if (
             not isinstance(source_index, int)
             or isinstance(source_index, bool)
             or not isinstance(page_number, int)
             or isinstance(page_number, bool)
+            or not isinstance(rotation, int)
+            or isinstance(rotation, bool)
+            or rotation % 90 != 0
         ):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Порядок страниц содержит некорректный номер.",
+                detail="Порядок страниц содержит некорректный номер или угол поворота.",
             )
-        page_order.append((source_index, page_number))
+        page_order.append(PageSpec(source_index, page_number, rotation % 360))
     return page_order
 
 
@@ -239,7 +245,7 @@ class DocumentRequest:
     profile: Profile
     output_format: OutputFormat
     options: ProcessingOptions | None
-    page_order: list[tuple[int, int]] | None
+    page_order: list[PageSpec] | None
 
 
 def parse_document_request(
@@ -250,6 +256,9 @@ def parse_document_request(
     compression: str | None,
     page_order: str | None,
     max_pages: int | None = None,
+    quality: int | None = None,
+    target_max_mb: int | None = None,
+    threshold: int | None = None,
 ) -> DocumentRequest:
     try:
         selected_profile = Profile(profile)
@@ -264,25 +273,80 @@ def parse_document_request(
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Формат результата должен быть tiff или pdf.",
+            detail="Формат результата должен быть tiff, pdf, pdfa или zip.",
         ) from error
-    if selected_output_format is OutputFormat.PDF and selected_profile is not Profile.VAT:
+
+    if selected_output_format is OutputFormat.PDF and selected_profile not in (Profile.VAT, Profile.CUSTOM):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="PDF доступен только в режиме отчётности.",
+        )
+
+    if selected_profile is Profile.REGISTRATION and selected_output_format is not OutputFormat.TIFF:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Для регистрации ООО/ИП принимается только многостраничный TIFF.",
+        )
+
+    if selected_profile is Profile.VAT and selected_output_format not in (OutputFormat.TIFF, OutputFormat.PDF):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="В режиме отчётности доступны только TIFF и PDF.",
         )
 
     custom_options = None
     if selected_profile is Profile.CUSTOM:
         if dpi not in {150, 200, 300, 400, 600}:
             raise HTTPException(status_code=422, detail="Выберите разрешение: 150, 200, 300, 400 или 600 DPI.")
-        if color_mode not in {"bw", "gray"}:
-            raise HTTPException(status_code=422, detail="Выберите цвет: bw или gray.")
-        if compression not in {"lzw", "deflate", "g4"}:
-            raise HTTPException(status_code=422, detail="Выберите сжатие: lzw, deflate или g4.")
-        if compression == "g4" and color_mode != "bw":
-            raise HTTPException(status_code=422, detail="Сжатие CCITT G4 доступно только для чёрно-белого TIFF.")
-        custom_options = ProcessingOptions(dpi, color_mode, compression)
+        if color_mode not in {"bw", "gray", "color"}:
+            raise HTTPException(status_code=422, detail="Выберите цвет: bw, gray или color.")
+
+        if compression is None or compression == "":
+            if selected_output_format is OutputFormat.TIFF:
+                compression = "g4" if color_mode == "bw" else "lzw"
+            elif selected_output_format in (OutputFormat.PDF, OutputFormat.PDFA, OutputFormat.ZIP):
+                compression = "jpeg" if selected_output_format != OutputFormat.ZIP else "deflate"
+            else:
+                compression = "lzw"
+
+        if compression not in {"lzw", "deflate", "g4", "jpeg"}:
+            raise HTTPException(status_code=422, detail="Выберите сжатие: lzw, deflate, g4 или jpeg.")
+
+        if selected_output_format is OutputFormat.TIFF:
+            if compression == "g4" and color_mode != "bw":
+                raise HTTPException(status_code=422, detail="Сжатие CCITT G4 доступно только для чёрно-белого документа.")
+            if compression == "jpeg" and color_mode == "bw":
+                raise HTTPException(status_code=422, detail="Сжатие JPEG недоступно для чёрно-белого документа.")
+        elif selected_output_format in (OutputFormat.PDF, OutputFormat.PDFA):
+            if compression in ("g4", "lzw"):
+                compression = "jpeg"
+        elif selected_output_format is OutputFormat.ZIP:
+            if compression in ("g4", "lzw"):
+                compression = "deflate"
+
+        effective_quality = 85
+        if quality is not None:
+            if not (50 <= quality <= 95):
+                raise HTTPException(status_code=422, detail="Качество сжатия должно быть от 50 до 95.")
+            effective_quality = quality
+
+        if target_max_mb is not None and target_max_mb not in {10, 15, 20, 25, 30}:
+            raise HTTPException(status_code=422, detail="Лимит размера файла должен быть 10, 15, 20, 25 или 30 МБ.")
+
+        effective_threshold = 180
+        if threshold is not None:
+            if not (100 <= threshold <= 220):
+                raise HTTPException(status_code=422, detail="Порог бинаризации должен быть от 100 до 220.")
+            effective_threshold = threshold
+
+        custom_options = ProcessingOptions(
+            dpi=dpi,
+            color_mode=color_mode,
+            compression=compression,
+            quality=effective_quality,
+            target_max_mb=target_max_mb,
+            threshold=effective_threshold,
+        )
 
     return DocumentRequest(
         profile=selected_profile,
@@ -375,6 +439,25 @@ def parse_document_form(form: FormData) -> tuple[DocumentRequest, list[Starlette
         dpi = int(raw_dpi) if raw_dpi else None
     except ValueError:
         dpi = None
+
+    raw_quality = form_text(form, "quality")
+    try:
+        quality = int(raw_quality) if raw_quality else None
+    except ValueError:
+        quality = None
+
+    raw_target_mb = form_text(form, "target_max_mb")
+    try:
+        target_max_mb = int(raw_target_mb) if raw_target_mb else None
+    except ValueError:
+        target_max_mb = None
+
+    raw_threshold = form_text(form, "threshold")
+    try:
+        threshold = int(raw_threshold) if raw_threshold else None
+    except ValueError:
+        threshold = None
+
     output_format = form_text(form, "output_format")
     document = parse_document_request(
         form_text(form, "profile") or "",
@@ -383,6 +466,9 @@ def parse_document_form(form: FormData) -> tuple[DocumentRequest, list[Starlette
         form_text(form, "color_mode"),
         form_text(form, "compression"),
         form_text(form, "page_order"),
+        quality=quality,
+        target_max_mb=target_max_mb,
+        threshold=threshold,
     )
     files = [part for part in form.getlist("files") if isinstance(part, StarletteUploadFile)]
     return document, files
@@ -410,11 +496,41 @@ document_form_openapi = {
                             "description": 'JSON: [{"source_index": 0, "page_number": 1}, ...]',
                         },
                         "dpi": {"type": "integer", "enum": [150, 200, 300, 400, 600]},
-                        "color_mode": {"type": "string", "enum": ["bw", "gray"]},
-                        "compression": {"type": "string", "enum": ["lzw", "deflate", "g4"]},
+                        "color_mode": {"type": "string", "enum": ["bw", "gray", "color"]},
+                        "compression": {"type": "string", "enum": ["lzw", "deflate", "g4", "jpeg"]},
+                        "quality": {"type": "integer", "minimum": 50, "maximum": 95},
+                        "target_max_mb": {"type": "integer", "enum": [10, 15, 20, 25, 30]},
+                        "threshold": {"type": "integer", "minimum": 100, "maximum": 220},
                         "personal_data_consent": {"type": "boolean"},
                         "consent_version": {"type": "string", "enum": [personal_data_consent_version]},
                         "files": {"type": "array", "items": {"type": "string", "format": "binary"}},
+                    },
+                }
+            }
+        },
+    }
+}
+
+
+inspect_form_openapi = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "multipart/form-data": {
+                "schema": {
+                    "type": "object",
+                    "required": ["profile", "personal_data_consent", "consent_version"],
+                    "properties": {
+                        "profile": {"type": "string", "enum": [item.value for item in Profile]},
+                        "file": {"type": "string", "format": "binary"},
+                        "files": {"type": "array", "items": {"type": "string", "format": "binary"}},
+                        "dpi": {"type": "integer", "enum": [150, 200, 300, 400, 600]},
+                        "color_mode": {"type": "string", "enum": ["bw", "gray", "color"]},
+                        "compression": {"type": "string", "enum": ["lzw", "deflate", "g4", "jpeg"]},
+                        "custom_format": {"type": "string", "enum": ["tiff", "pdf", "pdfa", "any"]},
+                        "target_max_mb": {"type": "integer", "enum": [5, 10, 15, 20, 25, 30, 60]},
+                        "personal_data_consent": {"type": "boolean"},
+                        "consent_version": {"type": "string", "enum": [personal_data_consent_version]},
                     },
                 }
             }
@@ -443,7 +559,7 @@ async def ready() -> dict[str, str]:
     response_class=FileResponse,
     openapi_extra=document_form_openapi,
     responses={
-        200: {"content": {"image/tiff": {}, "application/pdf": {}}},
+        200: {"content": {"image/tiff": {}, "application/pdf": {}, "application/zip": {}}},
         413: {"description": "Превышен лимит размера или числа страниц"},
         422: {"description": "Нет согласия, некорректные файлы или параметры"},
         503: {"description": "Сервис занят другими запросами"},
@@ -481,12 +597,14 @@ async def create_document(request: Request) -> FileResponse:
         if not response_owns_workspace:
             drop_workspace(work_directory)
 
-    filename = f"fnskit-{document.profile.value}.{document.output_format.value}"
-    media_type = (
-        "application/pdf"
-        if document.output_format is OutputFormat.PDF
-        else "image/tiff"
-    )
+    ext = "pdf" if document.output_format in (OutputFormat.PDF, OutputFormat.PDFA) else document.output_format.value
+    filename = f"fnskit-{document.profile.value}.{ext}"
+    if document.output_format in (OutputFormat.PDF, OutputFormat.PDFA):
+        media_type = "application/pdf"
+    elif document.output_format is OutputFormat.ZIP:
+        media_type = "application/zip"
+    else:
+        media_type = "image/tiff"
     response = FileResponse(
         result.output_path,
         media_type=media_type,
@@ -499,3 +617,104 @@ async def create_document(request: Request) -> FileResponse:
     )
     release_workspace(work_directory)
     return response
+
+
+@app.post(
+    "/v1/inspect",
+    openapi_extra=inspect_form_openapi,
+    responses={
+        200: {"description": "Результат проверки документа"},
+        413: {"description": "Превышен допустимый размер файла"},
+        415: {"description": "Неподдерживаемый формат файла"},
+        422: {"description": "Нет согласия или некорректные параметры"},
+        503: {"description": "Сервис временно перегружен"},
+    },
+)
+@limiter.limit(lambda: settings.rate_limit_tiff)
+async def inspect_uploaded_document(request: Request) -> JSONResponse:
+    """Проверить уже готовый документ на соответствие требованиям ФНС или заданным параметрам."""
+    work_directory = create_workspace()
+    try:
+        async with uploaded_form(request) as form:
+            require_personal_data_consent(form)
+            raw_profile = form_text(form, "profile") or "vat"
+            try:
+                profile = Profile(raw_profile)
+            except ValueError as err:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Профиль должен быть vat, registration или custom.",
+                ) from err
+
+            raw_dpi = form_text(form, "dpi")
+            custom_dpi = int(raw_dpi) if raw_dpi and raw_dpi.isdigit() else None
+            custom_color = form_text(form, "color_mode")
+            custom_compression = form_text(form, "compression")
+            custom_format = form_text(form, "custom_format") or form_text(form, "output_format")
+            raw_target_mb = form_text(form, "target_max_mb")
+            custom_target_mb = int(raw_target_mb) if raw_target_mb and raw_target_mb.isdigit() else None
+
+            file_part = form.get("file")
+            if not isinstance(file_part, StarletteUploadFile):
+                files = [part for part in form.getlist("files") if isinstance(part, StarletteUploadFile)]
+                file_part = files[0] if files else None
+
+            if not file_part or not isinstance(file_part, StarletteUploadFile):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Загрузите файл для проверки.",
+                )
+
+            original_filename = Path(file_part.filename or "document").name
+            suffix = Path(original_filename).suffix.lower()
+            if suffix not in {".pdf", ".tif", ".tiff"}:
+                raise HTTPException(
+                    status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                    detail="Для проверки принимаются только документы в форматах PDF или TIFF.",
+                )
+
+            file_path = work_directory / f"target{suffix}"
+            total_limit = settings.max_total_bytes
+            total_bytes = 0
+            with file_path.open("wb") as out:
+                while chunk := await file_part.read(settings.upload_chunk_bytes):
+                    try:
+                        account_staged_bytes(
+                            work_directory,
+                            len(chunk),
+                            settings.max_staged_megabytes * 1024 * 1024,
+                        )
+                    except StagingBudgetExceeded as error:
+                        raise HTTPException(
+                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="Сервис сейчас принимает много файлов. Попробуйте через несколько минут.",
+                        ) from error
+                    total_bytes += len(chunk)
+                    if total_bytes > total_limit:
+                        raise HTTPException(
+                            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            detail=f"Общий размер файла не должен превышать {total_limit // (1024 * 1024)} МБ.",
+                        )
+                    out.write(chunk)
+            await file_part.close()
+
+            report = await run_in_threadpool(
+                inspect_document,
+                file_path,
+                original_filename,
+                profile,
+                custom_dpi=custom_dpi,
+                custom_color=custom_color,
+                custom_compression=custom_compression,
+                custom_format=custom_format,
+                custom_target_mb=custom_target_mb,
+            )
+            return JSONResponse(content=report.to_dict())
+    except ProcessingError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
+    finally:
+        drop_workspace(work_directory)
+

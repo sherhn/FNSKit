@@ -1,6 +1,7 @@
 import io
 import re
 import subprocess
+import zipfile
 from pathlib import Path
 
 import fitz
@@ -8,6 +9,7 @@ from PIL import ExifTags, Image, UnidentifiedImageError
 
 from app.contracts import (
     OutputFormat,
+    PageSpec,
     ProcessingError,
     ProcessingOptions,
     ProcessingResult,
@@ -186,8 +188,8 @@ class _Budget:
         )
 
 
-def _contrast_threshold_table(histogram: list[int]) -> list[int]:
-    """Автоконтраст и порог 180 одной таблицей для перевода серого в 1 бит.
+def _contrast_threshold_table(histogram: list[int], threshold: int = 180) -> list[int]:
+    """Автоконтраст и порог threshold одной таблицей для перевода серого в 1 бит.
 
     Повторяет ImageOps.autocontrast (без cutoff) и следующий за ним порог, но не
     строит промежуточную контрастную копию страницы.
@@ -200,19 +202,19 @@ def _contrast_threshold_table(histogram: list[int]) -> list[int]:
         scale = 255.0 / (high - low)
         offset = -low * scale
         contrasted = [min(255, max(0, int(level * scale + offset))) for level in range(256)]
-    return [255 if value >= 180 else 0 for value in contrasted]
+    return [255 if value >= threshold else 0 for value in contrasted]
 
 
-def _finish_page(gray: Image.Image, options: ProcessingOptions) -> Image.Image:
-    """Серая страница итогового размера -> страница результата.
-
-    Возвращает ту же картинку (серый режим) или новую (1 бит): вызывающий
-    закрывает обе. Для 1 бита в памяти одновременно живут серая страница и её
-    чёрно-белая версия, больше копий нет.
-    """
+def _finish_page(image: Image.Image, options: ProcessingOptions) -> Image.Image:
+    if options.color_mode == "color":
+        return image if image.mode == "RGB" else image.convert("RGB")
     if options.color_mode == "gray":
-        return gray
-    return gray.point(_contrast_threshold_table(gray.histogram()), "1")
+        return image if image.mode == "L" else image.convert("L")
+    gray = image if image.mode == "L" else image.convert("L")
+    bw = gray.point(_contrast_threshold_table(gray.histogram(), threshold=options.threshold), "1")
+    if gray is not image:
+        gray.close()
+    return bw
 
 
 def _read_source_dpi(image: Image.Image) -> tuple[float, float] | None:
@@ -226,13 +228,25 @@ def _read_source_dpi(image: Image.Image) -> tuple[float, float] | None:
 
 
 def _save_page(image: Image.Image, destination: Path, options: ProcessingOptions) -> None:
-    compression = {"lzw": "tiff_lzw", "deflate": "tiff_adobe_deflate", "g4": "group4"}[options.compression]
-    image.save(
-        destination,
-        format="TIFF",
-        compression=compression,
-        dpi=(options.dpi, options.dpi),
-    )
+    comp_map = {
+        "lzw": "tiff_lzw",
+        "deflate": "tiff_adobe_deflate",
+        "g4": "group4",
+        "jpeg": "jpeg",
+    }
+    compression = comp_map.get(options.compression, "tiff_lzw")
+    if compression == "jpeg" and image.mode == "1":
+        compression = "group4"
+    if compression == "group4" and image.mode != "1":
+        compression = "tiff_lzw"
+    kwargs = {
+        "format": "TIFF",
+        "compression": compression,
+        "dpi": (options.dpi, options.dpi),
+    }
+    if compression == "jpeg":
+        kwargs["quality"] = options.quality
+    image.save(destination, **kwargs)
 
 
 # Страница PDF, на которой картинки после декодирования MuPDF занимают много
@@ -420,7 +434,7 @@ def _seam_free_scale(native: float | None, scale: float) -> float | None:
     return native
 
 
-def _render_page_two_step(page: fitz.Page, matrix: fitz.Matrix, scale: float) -> Image.Image | None:
+def _render_page_two_step(page: fitz.Page, matrix: fitz.Matrix, scale: float, color_mode: str = "gray") -> Image.Image | None:
     """Страница полосами в родном масштабе картинки и resize до целевого.
 
     None — этот путь не нужен (целевой масштаб и есть родной: полосы сразу в нём
@@ -439,17 +453,22 @@ def _render_page_two_step(page: fitz.Page, matrix: fitz.Matrix, scale: float) ->
         > _TWO_STEP_MAX_BYTES
     ):
         return None
-    native = _render_page_banded(page, safe_matrix, safe)
+    native = _render_page_banded(page, safe_matrix, safe, color_mode=color_mode)
     try:
         return native.resize((target.width, target.height), Image.Resampling.LANCZOS)
     finally:
         native.close()
 
 
-def _render_page_banded(page: fitz.Page, matrix: fitz.Matrix, scale: float) -> Image.Image:
+def _render_page_banded(page: fitz.Page, matrix: fitz.Matrix, scale: float, color_mode: str = "gray") -> Image.Image:
     full = (page.rect * matrix).round()
     width, height = full.width, full.height
-    image = Image.new("L", (width, height), 255)
+    is_color = color_mode == "color"
+    mode = "RGB" if is_color else "L"
+    fill_color = (255, 255, 255) if is_color else 255
+    cs = fitz.csRGB if is_color else fitz.csGRAY
+
+    image = Image.new(mode, (width, height), fill_color)
     rows = max(64, _BAND_PIXELS // max(1, width))
     try:
         for top in range(0, height, rows):
@@ -460,7 +479,7 @@ def _render_page_banded(page: fitz.Page, matrix: fitz.Matrix, scale: float) -> I
                 page.rect.x1,
                 min(page.rect.y1, (bottom + _BAND_MARGIN) / scale) if bottom < height else page.rect.y1,
             )
-            pixmap = page.get_pixmap(matrix=matrix, clip=clip, colorspace=fitz.csGRAY, alpha=False)
+            pixmap = page.get_pixmap(matrix=matrix, clip=clip, colorspace=cs, alpha=False)
             if (
                 pixmap.x != full.x0
                 or pixmap.width != width
@@ -468,7 +487,7 @@ def _render_page_banded(page: fitz.Page, matrix: fitz.Matrix, scale: float) -> I
                 or pixmap.y + pixmap.height < bottom
             ):
                 raise _BandMismatch
-            band = Image.frombytes("L", (pixmap.width, pixmap.height), pixmap.samples)
+            band = Image.frombytes(mode, (pixmap.width, pixmap.height), pixmap.samples)
             try:
                 piece = band.crop((0, top - pixmap.y, width, bottom - pixmap.y))
                 image.paste(piece, (0, top))
@@ -489,24 +508,24 @@ def _render_page(
     page: fitz.Page,
     matrix: fitz.Matrix,
     scale: float,
+    color_mode: str = "gray",
 ) -> tuple[Image.Image, object]:
-    """Страница PDF в оттенках серого. Второй элемент держит буфер MuPDF, на
-    который смотрит картинка: его нельзя отпускать, пока картинка жива.
-
-    Способ выбирается по оценке пика MuPDF на картинках страницы (она зависит от
-    фильтра и у Flate от длины сжатого потока, см. _WHOLE_FACTORS). Влезает
-    целиком — целиком. Иначе полосами, если они дешевле (у JPEG 2000 нет). Не
-    влезает ни так ни эдак — _ImageTooHeavy, чтобы не убить контейнер.
+    """Страница PDF в оттенках серого или цвете. Второй элемент держит буфер MuPDF,
+    на который смотрит картинка: его нельзя отпускать, пока картинка жива.
     """
     page_pixels = (page.rect.width * scale) * (page.rect.height * scale)
     whole_cost, banded_cost, codec, heaviest_pixels = _decode_cost(page)
+    is_color = color_mode == "color"
+    mode = "RGB" if is_color else "L"
+    cs = fitz.csRGB if is_color else fitz.csGRAY
+
     if page_pixels + whole_cost > min(_BANDED_ABOVE_BYTES, _MAX_DECODE_BYTES):
         if banded_cost < whole_cost - _BANDED_ABOVE_BYTES // 8 and banded_cost <= _MAX_DECODE_BYTES:
             # Сначала без шва (родной масштаб и resize), потом приближённо сразу в
             # целевом, и только если полосы не ложатся на сетку — целиком.
             for draw in (_render_page_two_step, _render_page_banded):
                 try:
-                    image = draw(page, matrix, scale)
+                    image = draw(page, matrix, scale, color_mode=color_mode)
                 except _BandMismatch:
                     continue
                 if image is not None:
@@ -518,15 +537,13 @@ def _render_page(
                 f"{int(page_pixels + whole_cost) // (1024 * 1024)} МБ при пределе "
                 f"{_MAX_DECODE_BYTES // (1024 * 1024)} МБ. Пересохраните PDF с меньшим разрешением картинок."
             )
-    pixmap = page.get_pixmap(matrix=matrix, colorspace=fitz.csGRAY, alpha=False)
-    # Pillow смотрит прямо в буфер MuPDF, без копии страницы. Картинка только
-    # для чтения, и если в неё выжигается знак, Pillow сам сделает копию.
+    pixmap = page.get_pixmap(matrix=matrix, colorspace=cs, alpha=False)
     image = Image.frombuffer(
-        "L",
+        mode,
         (pixmap.width, pixmap.height),
         pixmap.samples_mv,
         "raw",
-        "L",
+        mode,
         pixmap.stride,
         1,
     )
@@ -540,6 +557,7 @@ def _render_pdf(
     start_index: int,
     options: ProcessingOptions,
     budget: _Budget,
+    rotations: dict[int, int] | None = None,
 ) -> tuple[list[Path], int]:
     rendered: list[Path] = []
     try:
@@ -557,6 +575,9 @@ def _render_pdf(
         matrix = fitz.Matrix(scale, scale)
         for page_number in range(document.page_count):
             page = document.load_page(page_number)
+            rot = (rotations or {}).get(page_number + 1, 0)
+            if rot:
+                page.set_rotation((page.rotation + rot) % 360)
             rect = page.rect
             budget.ensure_page_fits(
                 (rect.width * scale) * (rect.height * scale),
@@ -565,7 +586,7 @@ def _render_pdf(
                 options,
             )
             try:
-                raw_page, pixmap = _render_page(page, matrix, scale)
+                raw_page, pixmap = _render_page(page, matrix, scale, color_mode=options.color_mode)
             except _ImageTooHeavy as error:
                 raise ProcessingError(
                     str(error), source_index=source_index, page_number=page_number + 1
@@ -582,10 +603,6 @@ def _render_pdf(
                 pixmap = None
             budget.account_page(destination)
             rendered.append(destination)
-            # MuPDF кэширует декодированные картинки страниц (store) до ~256 МБ
-            # и сам его не чистит: у скана в PDF каждая страница — цветная
-            # картинка в десятки мегабайт, и 20 страниц держали бы кэш полным.
-            # Страница отрисована один раз, кэш ей больше не нужен.
             page = None
             fitz.TOOLS.store_shrink(100)
     finally:
@@ -625,7 +642,7 @@ def _take_orientation(image: Image.Image) -> Image.Transpose | None:
     return method
 
 
-def _decode_gray_frame(
+def _decode_frame(
     image: Image.Image,
     source: Path,
     source_index: int,
@@ -635,56 +652,47 @@ def _decode_gray_frame(
     source_dpi: tuple[float, float] | None,
     options: ProcessingOptions,
     budget: _Budget,
+    rotation: int = 0,
 ) -> Image.Image:
-    """Текущий кадр в оттенках серого, повёрнутый по EXIF и в итоговом размере.
-
-    Копий кадра — не больше необходимого: цветной кадр сразу переводится в
-    серый, JPEG декодируется libjpeg сразу в серый (канал яркости, без
-    промежуточного RGB), а серый одиночный кадр используется как есть. Может
-    вернуть сам image.
-    """
-    # Проверка до декодирования; поворот площадь страницы не меняет.
+    """Текущий кадр в цвете или оттенках серого, повёрнутый и в итоговом размере."""
     target = _page_dimensions(image.width, image.height, source_dpi, options.dpi)
     budget.ensure_page_fits(target[0] * target[1], source_index, page_number, options)
+    target_mode = "RGB" if options.color_mode == "color" else "L"
     if single_frame and image.format == "JPEG":
-        # До декодирования: draft меняет то, как libjpeg распакует файл.
-        image.draft("L", None)
+        image.draft(target_mode, None)
     budget.ensure_frame_fits(image, source, source_index, page_number, keeps_frame=not single_frame)
-    # После проверки размера: у PNG чтение EXIF декодирует весь кадр.
     method = _take_orientation(image)
 
-    if image.mode != "L":
-        gray = image.convert("L")
+    if image.mode != target_mode:
+        frame = image.convert(target_mode)
         if single_frame:
-            # Цветной кадр больше не нужен, а стоит он до 4 байт на пиксель:
-            # освобождаем сразу, а не после сохранения страницы.
             image.close()
     elif single_frame and image.format != "TIFF":
         image.load()
-        gray = image
+        frame = image
     else:
-        # Кадр многостраничного файла: следующий seek перезапишет его память.
-        # Кадр TIFF с убранным Orientation: размер у самой картинки может быть
-        # уже «повёрнутый», а пиксели лежат в хранимой ориентации; copy() берёт
-        # размер у декодированного буфера, а не у картинки.
-        gray = image.copy()
+        frame = image.copy()
         if single_frame:
             image.close()
 
     try:
         if method is not None:
-            turned = gray.transpose(method)
-            gray.close()
-            gray = turned
-        target = _page_dimensions(gray.width, gray.height, source_dpi, options.dpi)
-        if gray.size != target:
-            resized = gray.resize(target, Image.Resampling.LANCZOS)
-            gray.close()
-            gray = resized
+            turned = frame.transpose(method)
+            frame.close()
+            frame = turned
+        if rotation:
+            rotated = frame.rotate(-rotation, expand=True)
+            frame.close()
+            frame = rotated
+        target = _page_dimensions(frame.width, frame.height, source_dpi, options.dpi)
+        if frame.size != target:
+            resized = frame.resize(target, Image.Resampling.LANCZOS)
+            frame.close()
+            frame = resized
     except BaseException:
-        gray.close()
+        frame.close()
         raise
-    return gray
+    return frame
 
 
 def _render_raster(
@@ -694,19 +702,11 @@ def _render_raster(
     start_index: int,
     options: ProcessingOptions,
     budget: _Budget,
+    rotations: dict[int, int] | None = None,
 ) -> tuple[list[Path], int]:
     rendered: list[Path] = []
-    # Файл открывается объектом, а не путём. У картинки, открытой по пути,
-    # Pillow читает несжатый TIFF в режимах L, P, RGBA, CMYK через mmap сразу по
-    # размеру из заголовка, а при Orientation 5-8 этот размер уже повёрнутый:
-    # строки кадра перечитываются под неверную форму и страница портится. Без
-    # пути mmap не используется, и буфер получает форму, в которой кадр хранится.
     handle = source.open("rb")
     try:
-        # Pillow выбирает декодер по содержимому, а не по расширению: без
-        # allowlist переименованный PSD или BMP ушёл бы в любой из десятков
-        # декодеров. Список повторяет белый список расширений в main.py —
-        # меньше сишного кода на пути недоверенного ввода.
         image = Image.open(handle, formats=["JPEG", "PNG", "TIFF"])
     except (Image.DecompressionBombError, UnidentifiedImageError, OSError) as error:
         handle.close()
@@ -723,7 +723,8 @@ def _render_raster(
 
         for frame_number in range(frame_count):
             image.seek(frame_number)
-            gray = _decode_gray_frame(
+            rot = (rotations or {}).get(frame_number + 1, 0)
+            frame = _decode_frame(
                 image,
                 source,
                 source_index,
@@ -732,16 +733,17 @@ def _render_raster(
                 source_dpi=source_dpi,
                 options=options,
                 budget=budget,
+                rotation=rot,
             )
             destination = pages_directory / f"{start_index + frame_number + 1:04d}.tif"
             try:
-                normalized = _finish_page(gray, options)
+                normalized = _finish_page(frame, options)
                 try:
                     _save_page(normalized, destination, options)
                 finally:
                     normalized.close()
             finally:
-                gray.close()
+                frame.close()
             budget.account_page(destination)
             rendered.append(destination)
     except (Image.DecompressionBombError, OSError, ValueError) as error:
@@ -758,8 +760,8 @@ def _verify_tiff_result(
     expected_pages: int,
     options: ProcessingOptions,
 ) -> None:
-    expected_mode = {"gray": "L", "bw": "1"}[options.color_mode]
-    expected_compression = {"g4": 4, "lzw": 5, "deflate": 8}[options.compression]
+    expected_mode = {"color": "RGB", "gray": "L", "bw": "1"}[options.color_mode]
+    expected_compression = {"g4": 4, "lzw": 5, "deflate": 8, "jpeg": 7}[options.compression]
 
     try:
         image = Image.open(output_path, formats=["TIFF"])
@@ -808,6 +810,7 @@ def _assemble_pdf(
     output_path: Path,
     options: ProcessingOptions,
     max_output_bytes: int,
+    is_pdfa: bool = False,
 ) -> None:
     """Собрать свежий плоский PDF потоком: страница за страницей.
 
@@ -815,35 +818,35 @@ def _assemble_pdf(
     формы, вложения, ссылки и метаданные исходного PDF пережить конвертацию не
     могут. PDF пишется прямо в файл, по одной странице за раз, а таблица ссылок
     идёт в конце, поэтому память не зависит ни от числа страниц, ни от размера
-    файла. Раньше PyMuPDF держал все JPEG итогового документа до сохранения, и
-    PDF упирался в 100 МБ.
-
-    Устройство файла: объект 1 — каталог, 2 — список страниц, 3 — сведения, а
-    каждая страница i (с нуля) — три объекта подряд: страница 4+3i, её
-    содержимое 5+3i, картинка 6+3i. Номера известны заранее, поэтому список
-    страниц можно написать после самих страниц.
+    файла.
     """
     encoded_bytes = 0
+    is_color = options.color_mode == "color"
+    color_space = b"/DeviceRGB" if is_color else b"/DeviceGray"
+    proc_set = b"[/PDF /ImageC]" if is_color else b"[/PDF /ImageB]"
+
     try:
         with output_path.open("wb") as output:
-            # offsets[n] — смещение объекта n; нулевой — «свободный».
-            offsets = [0, 0, 0, 0]
+            offsets: dict[int, int] = {}
 
             def write(number: int, body: bytes) -> None:
-                offsets.append(output.tell())
+                offsets[number] = output.tell()
                 output.write(_pdf_object(number, body))
 
             output.write(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
             for index, page_path in enumerate(page_paths):
                 with Image.open(page_path, formats=["TIFF"]) as source:
                     source.load()
-                    image = source if source.mode == "L" else source.convert("L")
+                    if is_color:
+                        image = source if source.mode == "RGB" else source.convert("RGB")
+                    else:
+                        image = source if source.mode == "L" else source.convert("L")
                     try:
                         encoded = io.BytesIO()
                         image.save(
                             encoded,
                             format="JPEG",
-                            quality=92,
+                            quality=options.quality,
                             optimize=True,
                             progressive=False,
                             dpi=(options.dpi, options.dpi),
@@ -868,8 +871,8 @@ def _assemble_pdf(
                 write(
                     page_object,
                     b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %b %b]"
-                    b" /Resources << /XObject << /Im0 %d 0 R >> /ProcSet [/PDF /ImageB] >>"
-                    b" /Contents %d 0 R >>" % (width_points, height_points, page_object + 2, page_object + 1),
+                    b" /Resources << /XObject << /Im0 %d 0 R >> /ProcSet %b >>"
+                    b" /Contents %d 0 R >>" % (width_points, height_points, page_object + 2, proc_set, page_object + 1),
                 )
                 write(
                     page_object + 1,
@@ -879,34 +882,134 @@ def _assemble_pdf(
                     page_object + 2,
                     _pdf_stream(
                         b"/Type /XObject /Subtype /Image /Width %d /Height %d"
-                        b" /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /DCTDecode" % (width, height),
+                        b" /ColorSpace %b /BitsPerComponent 8 /Filter /DCTDecode" % (width, height, color_space),
                         jpeg,
                     ),
                 )
                 del jpeg
 
             # Каталог, список страниц и сведения: номера 1-3, пишутся в конце.
+            next_obj = 4 + 3 * len(page_paths)
+            if is_pdfa:
+                meta_obj = next_obj
+                intent_obj = next_obj + 1
+                xmp = (
+                    b'<?xpacket begin="\xef\xbb\xbf" id="W5M0MpCehiHzreSzNTczkc9d"?>\n'
+                    b'<x:xmpmeta xmlns:x="adobe:ns:meta/">\n'
+                    b'  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">\n'
+                    b'    <rdf:Description rdf:about="" xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">\n'
+                    b'      <pdfaid:part>1</pdfaid:part>\n'
+                    b'      <pdfaid:conformance>B</pdfaid:conformance>\n'
+                    b'    </rdf:Description>\n'
+                    b'  </rdf:RDF>\n'
+                    b'</x:xmpmeta>\n'
+                    b'<?xpacket end="w"?>'
+                )
+                write(meta_obj, _pdf_stream(b"/Type /Metadata /Subtype /XML", xmp))
+                write(intent_obj, b"<< /Type /OutputIntent /S /GTS_PDFA1 /OutputConditionIdentifier (sRGB) /Info (sRGB) >>")
+                catalog_body = (
+                    b"<< /Type /Catalog /Pages 2 0 R /Metadata %d 0 R /OutputIntents [%d 0 R] >>"
+                    % (meta_obj, intent_obj)
+                )
+            else:
+                catalog_body = b"<< /Type /Catalog /Pages 2 0 R >>"
+
             kids = b" ".join(b"%d 0 R" % (4 + 3 * index) for index in range(len(page_paths)))
             for number, body in {
-                1: b"<< /Type /Catalog /Pages 2 0 R >>",
+                1: catalog_body,
                 2: b"<< /Type /Pages /Count %d /Kids [%b] >>" % (len(page_paths), kids),
                 3: b"<< /Creator %b /Producer %b >>" % (_pdf_text("ФНСКит"), _pdf_text("ФНСКит")),
             }.items():
-                offsets[number] = output.tell()
-                output.write(_pdf_object(number, body))
+                write(number, body)
 
+            max_obj = max(offsets.keys())
             xref_offset = output.tell()
-            output.write(b"xref\n0 %d\n0000000000 65535 f \n" % len(offsets))
-            for offset in offsets[1:]:
-                output.write(b"%010d 00000 n \n" % offset)
+            output.write(b"xref\n0 %d\n0000000000 65535 f \n" % (max_obj + 1))
+            for i in range(1, max_obj + 1):
+                output.write(b"%010d 00000 n \n" % offsets[i])
             output.write(
                 b"trailer\n<< /Size %d /Root 1 0 R /Info 3 0 R >>\nstartxref\n%d\n%%%%EOF\n"
-                % (len(offsets), xref_offset)
+                % (max_obj + 1, xref_offset)
             )
     except ProcessingError:
         raise
     except (OSError, RuntimeError, ValueError) as error:
         raise ProcessingError("Не удалось собрать многостраничный PDF.") from error
+
+
+def _assemble_zip(
+    page_paths: list[Path],
+    output_path: Path,
+    options: ProcessingOptions,
+    max_output_bytes: int,
+) -> None:
+    encoded_bytes = 0
+    try:
+        with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for index, page_path in enumerate(page_paths):
+                with Image.open(page_path, formats=["TIFF"]) as source:
+                    source.load()
+                    buffer = io.BytesIO()
+                    if options.color_mode == "bw":
+                        filename = f"{index + 1:03d}.png"
+                        bw = source if source.mode == "1" else source.convert("1")
+                        try:
+                            bw.save(buffer, format="PNG", dpi=(options.dpi, options.dpi))
+                        finally:
+                            if bw is not source:
+                                bw.close()
+                    else:
+                        filename = f"{index + 1:03d}.jpg"
+                        target_mode = "RGB" if options.color_mode == "color" else "L"
+                        frame = source if source.mode == target_mode else source.convert(target_mode)
+                        try:
+                            frame.save(
+                                buffer,
+                                format="JPEG",
+                                quality=options.quality,
+                                optimize=True,
+                                progressive=False,
+                                dpi=(options.dpi, options.dpi),
+                            )
+                        finally:
+                            if frame is not source:
+                                frame.close()
+                data = buffer.getvalue()
+                buffer.close()
+                encoded_bytes += len(data)
+                if encoded_bytes > max_output_bytes:
+                    megabytes = max_output_bytes // (1024 * 1024)
+                    raise ProcessingError(
+                        f"Итоговый архив превышает безопасный предел {megabytes} МБ. "
+                        "Разбейте документ на части."
+                    )
+                archive.writestr(filename, data)
+                del data
+    except ProcessingError:
+        raise
+    except (OSError, RuntimeError, ValueError) as error:
+        raise ProcessingError("Не удалось собрать итоговый ZIP-архив.") from error
+
+
+def _verify_zip_result(
+    output_path: Path,
+    page_paths: list[Path],
+    options: ProcessingOptions,
+) -> None:
+    try:
+        with zipfile.ZipFile(output_path, "r") as archive:
+            names = archive.namelist()
+            if len(names) != len(page_paths):
+                raise ProcessingError("В итоговом архиве неверное количество страниц.")
+            for index in range(len(page_paths)):
+                ext = ".png" if options.color_mode == "bw" else ".jpg"
+                expected_name = f"{index + 1:03d}{ext}"
+                if expected_name not in names:
+                    raise ProcessingError(f"Файл {expected_name} отсутствует в итоговом архиве.")
+    except ProcessingError:
+        raise
+    except Exception as error:
+        raise ProcessingError("Не удалось проверить итоговый архив.") from error
 
 
 _UNSAFE_PDF_OBJECT = re.compile(
@@ -935,10 +1038,13 @@ def _verify_pdf_result(
             if _UNSAFE_PDF_OBJECT.search(document.xref_object(xref, compressed=False)):
                 raise ProcessingError("Итоговый PDF содержит недопустимое активное содержимое.")
 
+        is_color = options.color_mode == "color"
+        expected_cs = (
+            {"DeviceRGB", "ICCBased"} if is_color else {"DeviceGray", "ICCBased"}
+        )
+        expected_mode = "RGB" if is_color else "L"
+
         for page_number, page_path in enumerate(page_paths):
-            # extract_image кладёт поток каждой картинки в кэш MuPDF, а тот растёт
-            # до ~256 МБ и сам себя не чистит: на PDF в сотни мегабайт проверка
-            # сама бы съела память контейнера.
             fitz.TOOLS.store_shrink(100)
             page = document.load_page(page_number)
             if page.get_text("text").strip() or page.get_links():
@@ -954,15 +1060,21 @@ def _verify_pdf_result(
             if (
                 smask
                 or bits_per_component != 8
-                or color_space not in {"DeviceGray", "ICCBased"}
-                or extracted.get("colorspace") != 1
-                or "Gray" not in str(extracted.get("cs-name", ""))
+                or color_space not in expected_cs
             ):
                 raise ProcessingError("Итоговый PDF имеет неверную глубину цвета.")
+
+            if is_color:
+                if extracted.get("colorspace") != 3 or "RGB" not in str(extracted.get("cs-name", "")):
+                    raise ProcessingError("Итоговый PDF имеет неверную глубину цвета.")
+            else:
+                if extracted.get("colorspace") != 1 or "Gray" not in str(extracted.get("cs-name", "")):
+                    raise ProcessingError("Итоговый PDF имеет неверную глубину цвета.")
+
             with Image.open(io.BytesIO(extracted["image"]), formats=["JPEG"]) as embedded:
                 embedded_dpi = _read_source_dpi(embedded)
                 if (
-                    embedded.mode != "L"
+                    embedded.mode != expected_mode
                     or embedded_dpi is None
                     or abs(embedded_dpi[0] - options.dpi) > 0.5
                     or abs(embedded_dpi[1] - options.dpi) > 0.5
@@ -998,20 +1110,30 @@ def process_documents(
     max_pages: int,
     max_page_pixels: int,
     max_rendered_bytes: int,
-    page_order: list[tuple[int, int]] | None = None,
+    page_order: list[tuple[int, int]] | list[PageSpec] | None = None,
     options: ProcessingOptions | None = None,
     output_format: OutputFormat = OutputFormat.TIFF,
 ) -> ProcessingResult:
-    if output_format is OutputFormat.PDF and profile is not Profile.VAT:
+    if output_format in (OutputFormat.PDF, OutputFormat.PDFA) and profile not in (Profile.VAT, Profile.CUSTOM):
         raise ProcessingError("PDF доступен только в режиме отчётности.")
     options = options or options_for_profile(profile)
     budget = _Budget(max_pages, max_page_pixels, max_rendered_bytes)
     pages_directory = work_directory / "pages"
     pages_directory.mkdir(parents=True, exist_ok=True)
 
+    source_rotations: dict[int, dict[int, int]] = {}
+    if page_order:
+        for item in page_order:
+            s_idx = item[0]
+            p_num = item[1]
+            rot = item[2] if len(item) > 2 else 0
+            if rot:
+                source_rotations.setdefault(s_idx, {})[p_num] = rot
+
     rendered_sources: list[list[Path]] = []
     rendered_count = 0
     for source_index, source in enumerate(source_paths):
+        rotations = source_rotations.get(source_index)
         suffix = source.suffix.lower()
         if suffix == ".pdf":
             rendered, count = _render_pdf(
@@ -1021,6 +1143,7 @@ def process_documents(
                 rendered_count,
                 options,
                 budget,
+                rotations=rotations,
             )
         else:
             rendered, count = _render_raster(
@@ -1030,6 +1153,7 @@ def process_documents(
                 rendered_count,
                 options,
                 budget,
+                rotations=rotations,
             )
         if count == 0:
             raise ProcessingError(f"В файле «{source.name}» не найдено страниц.")
@@ -1045,7 +1169,8 @@ def process_documents(
             raise ProcessingError(f"В результате получится больше {budget.max_pages} страниц.")
 
         page_paths = []
-        for source_index, page_number in page_order:
+        for item in page_order:
+            source_index, page_number = item[0], item[1]
             if source_index < 0 or source_index >= len(rendered_sources):
                 raise ProcessingError("Получен некорректный порядок страниц.")
             source_pages = rendered_sources[source_index]
@@ -1056,17 +1181,55 @@ def process_documents(
     if not page_paths:
         raise ProcessingError("Не найдено страниц для обработки.")
 
-    if output_format is OutputFormat.PDF:
+    if output_format in (OutputFormat.PDF, OutputFormat.PDFA):
         output_path = work_directory / "result.pdf"
-        # PDF пишется потоком, память от его размера не зависит: предел только
-        # дисковый, тот же, что у страниц запроса.
-        _assemble_pdf(page_paths, output_path, options, max_rendered_bytes)
+        is_pdfa = output_format is OutputFormat.PDFA
+        _assemble_pdf(page_paths, output_path, options, max_rendered_bytes, is_pdfa=is_pdfa)
+        if options.target_max_mb:
+            target_bytes = options.target_max_mb * 1024 * 1024
+            if output_path.stat().st_size > target_bytes and options.quality > 50:
+                for fallback_quality in (70, 55, 45):
+                    if fallback_quality >= options.quality:
+                        continue
+                    fallback_options = ProcessingOptions(
+                        dpi=options.dpi,
+                        color_mode=options.color_mode,
+                        compression=options.compression,
+                        quality=fallback_quality,
+                        target_max_mb=options.target_max_mb,
+                        threshold=options.threshold,
+                    )
+                    _assemble_pdf(page_paths, output_path, fallback_options, max_rendered_bytes, is_pdfa=is_pdfa)
+                    if output_path.stat().st_size <= target_bytes:
+                        break
+            if output_path.stat().st_size > target_bytes:
+                actual_mb = output_path.stat().st_size / (1024 * 1024)
+                raise ProcessingError(
+                    f"Размер файла ({actual_mb:.1f} МБ) превышает лимит {options.target_max_mb} МБ "
+                    "даже при адаптивном сжатии. Уменьшите разрешение (DPI) или разбейте документ на части."
+                )
         budget.ensure_result_fits(output_path)
         _verify_pdf_result(output_path, page_paths, options)
+    elif output_format is OutputFormat.ZIP:
+        output_path = work_directory / "result.zip"
+        _assemble_zip(page_paths, output_path, options, max_rendered_bytes)
+        if options.target_max_mb:
+            target_bytes = options.target_max_mb * 1024 * 1024
+            if output_path.stat().st_size > target_bytes:
+                actual_mb = output_path.stat().st_size / (1024 * 1024)
+                raise ProcessingError(
+                    f"Размер файла ({actual_mb:.1f} МБ) превышает лимит {options.target_max_mb} МБ. "
+                    "Уменьшите разрешение (DPI) или разбейте документ на части."
+                )
+        budget.ensure_result_fits(output_path)
+        _verify_zip_result(output_path, page_paths, options)
     else:
         output_path = work_directory / "result.tiff"
-        compression = {"lzw": "lzw", "deflate": "zip", "g4": "g4"}[options.compression]
-        command = ["tiffcp", "-c", compression, *map(str, page_paths), str(output_path)]
+        if options.compression == "jpeg":
+            command = ["tiffcp", "-c", f"jpeg:r:{options.quality}", "-r", "64", *map(str, page_paths), str(output_path)]
+        else:
+            compression = {"lzw": "lzw", "deflate": "zip", "g4": "g4"}[options.compression]
+            command = ["tiffcp", "-c", compression, *map(str, page_paths), str(output_path)]
         try:
             subprocess.run(
                 command,
@@ -1077,6 +1240,14 @@ def process_documents(
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             raise ProcessingError("Не удалось собрать многостраничный TIFF.") from error
+        if options.target_max_mb:
+            target_bytes = options.target_max_mb * 1024 * 1024
+            if output_path.stat().st_size > target_bytes:
+                actual_mb = output_path.stat().st_size / (1024 * 1024)
+                raise ProcessingError(
+                    f"Размер файла ({actual_mb:.1f} МБ) превышает лимит {options.target_max_mb} МБ. "
+                    "Уменьшите разрешение (DPI) или разбейте документ на части."
+                )
         budget.ensure_result_fits(output_path)
         _verify_tiff_result(output_path, len(page_paths), options)
 

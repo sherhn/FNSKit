@@ -65,7 +65,7 @@ docker compose --env-file .env -f backend/docker-compose.yml down
 | --- | --- |
 | `site/` | сайт: страницы, редактор, просмотрщик TIFF |
 | `backend/` | сервис обработки документов и настройки запуска |
-| `docs/` | [описание дизайна](docs/DESIGN.md) |
+| `docs/` | [описание дизайна](docs/DESIGN.md), [стек технологий](docs/STACK.md) |
 
 Подробности запуска и деплоя — в [backend/README.md](backend/README.md).
 
