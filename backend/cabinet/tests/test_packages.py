@@ -159,6 +159,15 @@ class PackagesApiTest(unittest.TestCase):
             second = self.upload("Второй.pdf")
             self.assertEqual(self.package([file["id"], second["id"]]).status_code, 422)
 
+    def test_same_file_in_another_spelling_is_a_duplicate(self) -> None:
+        file = self.upload("Выписка.pdf")
+        self.assertEqual(self.package([file["id"], file["id"].upper()]).status_code, 422)
+        braced = "{" + file["id"].upper() + "}"
+        self.assertEqual(self.package([file["id"], braced]).status_code, 422)
+        # Сама по себе другая запись того же id — тот же файл, не ошибка.
+        archive = zipfile.ZipFile(io.BytesIO(self.package([file["id"].upper()]).content))
+        self.assertEqual(archive.namelist(), ["Опись.txt", "01 Выписка.pdf"])
+
     def test_other_users_files_are_not_packed(self) -> None:
         own = self.upload("Выписка.pdf")
         foreign = self.upload("Чужая.pdf", sub=OTHER_USER)

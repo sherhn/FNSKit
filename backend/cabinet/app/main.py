@@ -788,7 +788,13 @@ async def build_package(
     """Один ZIP из выбранных файлов кабинета и опись к нему. Архив идёт
     потоком: первый файл читается до ответа (ошибка хранилища — честный 503),
     остальные — по мере отдачи."""
-    ids = body.document_ids
+    # id приводятся к каноническому виду: Postgres сравнивает UUID без учёта
+    # регистра и формы записи, и иначе один файл в «A1…» и «a1…» прошёл бы
+    # проверку на повтор и лёг в архив дважды. Не UUID — такого файла нет.
+    try:
+        ids = [str(uuid.UUID(document_id)) for document_id in body.document_ids]
+    except ValueError as error:
+        raise not_found() from error
     if len(ids) > settings.max_package_documents:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
