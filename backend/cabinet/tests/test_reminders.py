@@ -195,6 +195,17 @@ class RunOnceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.run_once(), 2)
         self.assertEqual({m["To"] for m in self.sent}, {"a@example.test", "b@example.test"})
 
+    async def test_bad_address_does_not_stop_others(self) -> None:
+        # Адрес с переводом строки в заголовок To не годится — письмо этому
+        # владельцу не уходит, но остальным рассылка продолжается.
+        await self.store.touch_contact(OWNER, "a@example.test\nBcc: spy@example.test")
+        await self.store.touch_contact("owner-2", "b@example.test")
+        await self.add("signature_certificate", TODAY + timedelta(days=5))
+        await self.add("signature_certificate", TODAY + timedelta(days=5), owner="owner-2")
+        with self.assertLogs("fnskit.cabinet.reminders", level="ERROR"):
+            self.assertEqual(await self.run_once(), 1)
+        self.assertEqual([m["To"] for m in self.sent], ["b@example.test"])
+
 
 if __name__ == "__main__":
     unittest.main()

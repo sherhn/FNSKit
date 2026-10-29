@@ -160,8 +160,10 @@ async def run_once(
         days_left = (due - current).days
         if not should_send(days_left, document.last_reminder):
             continue
-        message = build_message(settings, email, document, days_left)
         try:
+            # Письмо собираем внутри try: адрес, который не годится в заголовок
+            # To, не должен остановить рассылку остальным.
+            message = build_message(settings, email, document, days_left)
             await asyncio.to_thread(send, settings, message)
         except Exception:
             # Порог не отмечаем: следующий проход попробует ещё раз.
