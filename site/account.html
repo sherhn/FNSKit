@@ -25,7 +25,7 @@
   <title>Кабинет компании — ФНСКит</title>
   <link rel="stylesheet" href="/css/tailwind.css?v=20261030-review" />
   <link rel="stylesheet" href="/mobile.css?v=20261017-free" />
-  <script src="/js/account.js?v=20261030-review" defer></script>
+  <script src="/js/account.js?v=20261030-delete" defer></script>
 </head>
 <body class="min-h-screen overflow-x-hidden bg-paper font-sans text-ink antialiased [background-image:radial-gradient(rgba(23,24,21,.06)_.7px,transparent_.7px)] [background-size:9px_9px]">
   <header class="relative z-40 border-b border-ink/10 bg-paper/80 backdrop-blur-xl">
@@ -218,6 +218,12 @@
               </div>
               <button id="remindersSwitch" type="button" role="switch" aria-checked="true" aria-labelledby="remindersTitle" class="switch mt-1"></button>
             </div>
+          </section>
+
+          <section class="rounded-[2rem] border border-red-200 bg-white/90 p-7 sm:p-8" aria-labelledby="deleteAccountTitle">
+            <h3 id="deleteAccountTitle" class="text-2xl font-extrabold tracking-[-.05em]">Удаление аккаунта</h3>
+            <p class="mt-2 max-w-xl text-sm font-medium leading-relaxed text-ink/55">Вместе с аккаунтом удалятся все файлы кабинета, ссылки на них и напоминания — восстановить их будет нельзя. Если файлы ещё нужны, сначала скачайте их или соберите пакет.</p>
+            <button id="deleteAccountButton" type="button" class="btn btn-sm btn-danger mt-5 border border-red-200">Удалить аккаунт</button>
           </section>
         </div>
       </section>

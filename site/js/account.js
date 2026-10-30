@@ -35,6 +35,10 @@
     UPDATE_PROFILE: {
       success: "Данные сохранены.",
       cancelled: "Данные не изменились."
+    },
+    delete_account: {
+      success: "Аккаунт удалён. Файлы кабинета, ссылки и напоминания удалятся в течение нескольких минут.",
+      cancelled: "Аккаунт не удалён."
     }
   };
 
@@ -1079,17 +1083,30 @@
     keycloak.login({ action, redirectUri: RETURN_URL });
   }
 
-  function reportAction() {
-    if (!pendingAction) return;
+  // Итог действия, с которым вернул Keycloak: { text, tone } или null.
+  function takeActionResult() {
+    if (!pendingAction) return null;
     const { status, action } = pendingAction;
     pendingAction = null;
+    if (status === "error") return { text: "Действие не выполнено. Попробуйте ещё раз.", tone: "error" };
     const key = Object.keys(ACTION_MESSAGES).find((name) => action && action.startsWith(name));
-    const message = $("userMessage");
-    if (status === "error") {
-      showMessage(message, "Действие не выполнено. Попробуйте ещё раз.", "error");
-    } else if (key && ACTION_MESSAGES[key][status]) {
-      showMessage(message, ACTION_MESSAGES[key][status], status === "success" ? "success" : "neutral");
-    }
+    if (!key || !ACTION_MESSAGES[key][status]) return null;
+    return { text: ACTION_MESSAGES[key][status], tone: status === "success" ? "success" : "neutral" };
+  }
+
+  function reportAction() {
+    const result = takeActionResult();
+    if (result) showMessage($("userMessage"), result.text, result.tone);
+  }
+
+  // Удаление делает Keycloak (действие delete_account, со своим
+  // подтверждением), а файлы кабинета после этого удаляет сверка аккаунтов
+  // на сервере — backend/cabinet/app/accounts.py.
+  function deleteAccount() {
+    const count = cabinet.files.length;
+    const files = count ? ` и ${plural(count, "файл", "файла", "файлов")} в кабинете` : "";
+    if (!window.confirm(`Удалить аккаунт${files} без возможности восстановления?`)) return;
+    runAction("delete_account");
   }
 
   // --- Вкладки --------------------------------------------------------------------------
@@ -1181,6 +1198,7 @@
     $("profileButton").addEventListener("click", () => runAction("UPDATE_PROFILE"));
     $("businessTypeButton").addEventListener("click", () => runAction("UPDATE_PROFILE"));
     $("remindersSwitch").addEventListener("click", toggleReminders);
+    $("deleteAccountButton").addEventListener("click", deleteAccount);
     $("situationalToggle").addEventListener("click", () => {
       showSituational = !showSituational;
       renderDocuments();
@@ -1255,7 +1273,10 @@
     if (authenticated) {
       await showUser();
     } else {
-      showGuest();
+      // После удаления аккаунта Keycloak возвращает уже без входа — итог
+      // действия показываем на экране гостя.
+      const result = takeActionResult();
+      showGuest(result ? result.text : undefined);
     }
   }
 
