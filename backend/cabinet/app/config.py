@@ -92,6 +92,14 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: SecretStr = SecretStr("")
     share_link_max_days: int = Field(default=30, ge=1, le=365)
+    # --- Сверка аккаунтов с Keycloak (app/accounts.py) ---
+    # Файлы удалённого аккаунта удаляются при следующей сверке. Без секрета
+    # служебного клиента сверка выключена, а в журнале предупреждение.
+    keycloak_admin_url: str = "http://keycloak:8080/auth"
+    keycloak_realm: str = "fnskit"
+    keycloak_sync_client_id: str = "fnskit-cabinet-sync"
+    keycloak_sync_client_secret: SecretStr = SecretStr("")
+    account_sync_minutes: int = Field(default=10, ge=1)
     # Пакет документов — один ZIP из файлов кабинета. Собирается потоком, по
     # файлу за раз, поэтому предел держит не память, а время скачивания.
     max_package_documents: int = Field(default=50, ge=1, le=100)

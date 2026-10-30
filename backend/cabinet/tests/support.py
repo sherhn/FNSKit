@@ -328,6 +328,23 @@ class MemoryStore:
         ]
         return legacy[:limit]
 
+    async def owners(self) -> list[str]:
+        return sorted({d.owner for d in self.documents.values()} | set(self.contacts))
+
+    async def purge_owner(self, owner: str) -> list[str]:
+        keys = []
+        for document_id, document in list(self.documents.items()):
+            if document.owner != owner:
+                continue
+            content = self.contents.pop(document_id)
+            del self.documents[document_id]
+            self.links = {h: v for h, v in self.links.items() if v[1] != document_id}
+            if content.object_key is not None:
+                keys.append(content.object_key)
+                self.garbage.setdefault(content.object_key, datetime.now(UTC))
+        self.contacts.pop(owner, None)
+        return keys
+
     async def attach_object(self, document_id: str, object_key: str) -> bool:
         content = self.contents.get(document_id)
         if content is None or content.object_key is not None:

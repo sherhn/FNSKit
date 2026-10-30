@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.accounts import AccountDirectory, AccountsUnavailable, KeycloakAccounts
 from app.auth import JwksCache, KeysUnavailable, Principal, TokenError, TokenVerifier
 from app.config import get_settings
 from app.documents import (
@@ -133,6 +134,45 @@ async def maintain_forever(store: DocumentStore, objects: ObjectStore) -> None:
         await asyncio.sleep(settings.expired_links_sweep_minutes * 60)
 
 
+# Если Keycloak не узнаёт ни одного владельца, это почти наверняка не тот
+# Keycloak (другой стенд, восстановленная копия), а не массовое удаление: id
+# пользователей — UUID, и найденный хоть один владелец доказывает, что адрес
+# верный. Маленькому кабинету (до стольких владельцев) это правило не мешает:
+# там «все удалили аккаунты» вполне возможно.
+ACCOUNT_SYNC_SAFE_MISSING = 5
+
+
+async def purge_deleted_accounts(store: DocumentStore, objects: ObjectStore, accounts: AccountDirectory) -> int:
+    """Удалить данные владельцев, чьих аккаунтов больше нет в Keycloak.
+    Возвращает число таких владельцев. Любой сбой Keycloak прерывает проход
+    до удаления."""
+    owners = await store.owners()
+    missing = [owner for owner in owners if not await accounts.exists(owner)]
+    if len(missing) == len(owners) > ACCOUNT_SYNC_SAFE_MISSING:
+        raise AccountsUnavailable(
+            f"Keycloak не знает ни одного из {len(owners)} владельцев — похоже, это не тот Keycloak; ничего не удалено"
+        )
+    for owner in missing:
+        for object_key in await store.purge_owner(owner):
+            await discard_object(store, objects, object_key)
+    return len(missing)
+
+
+async def sync_accounts_forever(store: DocumentStore, objects: ObjectStore, accounts: AccountDirectory) -> None:
+    while True:
+        try:
+            purged = await purge_deleted_accounts(store, objects, accounts)
+        except AccountsUnavailable as error:
+            logger.error("Сверка аккаунтов пропущена: %s", error)
+        except Exception:
+            logger.exception("Не удалось сверить аккаунты.")
+        else:
+            if purged:
+                # Кого именно — не пишем: id владельца тоже персональные данные.
+                logger.info("Удалены данные удалённых аккаунтов: %s", purged)
+        await asyncio.sleep(settings.account_sync_minutes * 60)
+
+
 async def send_reminders_forever(store: DocumentStore) -> None:
     while True:
         try:
@@ -185,6 +225,22 @@ async def lifespan(app: FastAPI):
                 except StorageUnavailable as error:
                     logger.error("Хранилище файлов недоступно: %s", error)
             tasks.append(asyncio.create_task(maintain_forever(app.state.store, app.state.objects)))
+            own_accounts = getattr(app.state, "accounts", None) is None
+            if own_accounts and settings.keycloak_sync_client_secret.get_secret_value():
+                app.state.accounts = KeycloakAccounts(
+                    client,
+                    settings.keycloak_admin_url,
+                    settings.keycloak_realm,
+                    settings.keycloak_sync_client_id,
+                    settings.keycloak_sync_client_secret.get_secret_value(),
+                )
+            if getattr(app.state, "accounts", None) is not None:
+                tasks.append(asyncio.create_task(
+                    sync_accounts_forever(app.state.store, app.state.objects, app.state.accounts)
+                ))
+            else:
+                logger.warning("Сверка аккаунтов выключена: нет KEYCLOAK_SYNC_CLIENT_SECRET — "
+                               "файлы удалённых аккаунтов не удаляются.")
             if reminders_available():
                 tasks.append(asyncio.create_task(send_reminders_forever(app.state.store)))
             keys = JwksCache(
@@ -201,6 +257,8 @@ async def lifespan(app: FastAPI):
                     task.cancel()
                     with suppress(asyncio.CancelledError):
                         await task
+                if own_accounts:
+                    app.state.accounts = None
     finally:
         if own_objects:
             app.state.objects = None

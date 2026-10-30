@@ -158,6 +158,10 @@ class DocumentStore(Protocol):
 
     async def attach_object(self, document_id: str, object_key: str) -> bool: ...
 
+    async def owners(self) -> list[str]: ...
+
+    async def purge_owner(self, owner: str) -> list[str]: ...
+
     async def close(self) -> None: ...
 
 
@@ -606,6 +610,32 @@ class PostgresStore:
             LegacyContent(str(row["document_id"]), row["key_id"], bytes(row["nonce"]), bytes(row["ciphertext"]))
             for row in rows
         ]
+
+    async def owners(self) -> list[str]:
+        """Все, у кого в кабинете что-то есть: файлы или адрес для напоминаний."""
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(
+                "SELECT owner FROM documents UNION SELECT owner FROM reminder_contacts ORDER BY owner"
+            )
+        return [row["owner"] for row in rows]
+
+    async def purge_owner(self, owner: str) -> list[str]:
+        """Удалить всё, что кабинет хранит о владельце: записи о файлах (ссылки
+        и старое содержимое уходят каскадом) и адрес для напоминаний. Объекты
+        S3 ставятся в очередь на удаление в той же транзакции; их ключи
+        возвращаются, чтобы удалить их сразу."""
+        async with self._pool.acquire() as connection, connection.transaction():
+            rows = await connection.fetch(
+                "DELETE FROM documents WHERE owner = $1 RETURNING object_key", owner
+            )
+            keys = [row["object_key"] for row in rows if row["object_key"] is not None]
+            if keys:
+                await connection.executemany(
+                    "INSERT INTO storage_garbage (object_key) VALUES ($1) ON CONFLICT DO NOTHING",
+                    [(key,) for key in keys],
+                )
+            await connection.execute("DELETE FROM reminder_contacts WHERE owner = $1", owner)
+        return keys
 
     async def attach_object(self, document_id: str, object_key: str) -> bool:
         """Перенесённый в S3 файл: запись теперь ссылается на объект, а

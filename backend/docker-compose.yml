@@ -247,6 +247,10 @@ services:
       # Локально бакет создаётся сам; в продакшене — заранее и вручную.
       S3_CREATE_BUCKET: ${CABINET_S3_CREATE_BUCKET:-true}
       PUBLIC_URL: ${FNSKIT_SITE_URL}
+      # Сверка аккаунтов: файлы удалённого аккаунта удаляются при следующей
+      # сверке (ACCOUNT_SYNC_MINUTES, по умолчанию 10 минут).
+      KEYCLOAK_ADMIN_URL: http://keycloak:8080/auth
+      KEYCLOAK_SYNC_CLIENT_SECRET: ${CABINET_KEYCLOAK_SYNC_SECRET:?Задайте CABINET_KEYCLOAK_SYNC_SECRET в .env}
       # Письма-напоминания о сроках документов идут через тот же SMTP, что и
       # письма Keycloak.
       SMTP_HOST: ${FNSKIT_SMTP_HOST:-mailpit}
