@@ -156,6 +156,62 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "fnskit-cabinet-sync",
+      "name": "Кабинет: сверка аккаунтов",
+      "description": "Служебный клиент кабинета: проверяет, что владельцы файлов ещё существуют, и удаляет файлы удалённых аккаунтов. Только чтение пользователей.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${CABINET_KEYCLOAK_SYNC_SECRET}",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "frontchannelLogout": false,
+      "fullScopeAllowed": true
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "offline_access",
+        "description": "${role_offline-access}",
+        "composite": false
+      },
+      {
+        "name": "uma_authorization",
+        "description": "${role_uma_authorization}",
+        "composite": false
+      },
+      {
+        "name": "default-roles-fnskit",
+        "description": "${role_default-roles}",
+        "composite": true,
+        "composites": {
+          "realm": ["offline_access", "uma_authorization"],
+          "client": {
+            "account": ["view-profile", "manage-account", "delete-account"]
+          }
+        }
+      }
+    ]
+  },
+  "defaultRole": {
+    "name": "default-roles-fnskit",
+    "description": "${role_default-roles}",
+    "composite": true
+  },
+  "users": [
+    {
+      "username": "service-account-fnskit-cabinet-sync",
+      "enabled": true,
+      "serviceAccountClientId": "fnskit-cabinet-sync",
+      "clientRoles": {
+        "realm-management": ["view-users"]
+      }
     }
   ],
   "components": {
@@ -239,7 +295,7 @@
       "alias": "delete_account",
       "name": "Delete Account",
       "providerId": "delete_account",
-      "enabled": false,
+      "enabled": true,
       "defaultAction": false,
       "priority": 60,
       "config": {}

@@ -124,6 +124,9 @@ services:
       FNSKIT_SMTP_AUTH: ${FNSKIT_SMTP_AUTH:-false}
       FNSKIT_SMTP_USER: ${FNSKIT_SMTP_USER:-}
       FNSKIT_SMTP_PASSWORD: ${FNSKIT_SMTP_PASSWORD:-}
+      # Секрет служебного клиента fnskit-cabinet-sync: им кабинет сверяет
+      # владельцев файлов с аккаунтами и удаляет файлы удалённых.
+      CABINET_KEYCLOAK_SYNC_SECRET: ${CABINET_KEYCLOAK_SYNC_SECRET:?Задайте CABINET_KEYCLOAK_SYNC_SECRET в .env}
     restart: unless-stopped
     ports:
       - "127.0.0.1:8083:8080"
