@@ -1,7 +1,8 @@
 # Продакшен-вариант стека: образы берутся готовыми из ghcr, а не собираются на
-# сервере. Собирать на машине с 400 МБ ОЗУ дорого — сборка съедает больше, чем
-# весь работающий стек. Локальная разработка остаётся на docker-compose.yml,
-# который собирает из исходников.
+# сервере. Собираются они на компьютере разработчика и отправляются в реестр
+# (backend/README.md, раздел «Деплой»): сервер маленький, и сборка Keycloak или
+# PyMuPDF съела бы больше памяти, чем весь работающий стек. Локальная
+# разработка остаётся на docker-compose.yml, который собирает из исходников.
 #
 # Тег задаётся переменной IMAGE_TAG (по умолчанию latest): в панели Dokploy её
 # можно переставить на конкретный коммит и получить откат без пересборки.
@@ -13,23 +14,33 @@
 #
 # Отличия от docker-compose.yml, все намеренные:
 #
-#   * образы берутся из ghcr, а не собираются;
+#   * образы своих сервисов берутся из ghcr, а не собираются;
 #   * `.env` читается рядом с файлом — его туда кладёт панель Dokploy;
-#   * `cpus` у processor равен 1: на сервере одно ядро, больший лимит Docker
-#     просто не принимает;
+#   * `cpus` не больше 1: на сервере одно ядро, больший лимит Docker просто
+#     не принимает и контейнер не создаётся;
 #   * на хост не публикуется ни один порт. Сервер общий с другими проектами
 #     Dokploy, и `8080` или `8082` на нём уже могут быть заняты —
 #     деплой падал бы на «port is already allocated». Наружу и так смотрит
 #     только nginx через Traefik, а сервисы находят друг друга по именам
 #     внутри сети compose. Для отладки на сервере есть `docker exec`;
-#   * processor сидит только во внутренней сети backend (без выхода наружу).
-#     В локальном файле он дополнительно подключён к default ради порта на
-#     localhost.
+#     админка Keycloak наружу не отдаётся вовсе (backend/README.md);
+#   * processor, база и хранилище сидят только во внутренней сети backend (без
+#     выхода наружу). Выход нужен лишь тем, кто ходит к почтовому серверу:
+#     Keycloak и кабинету;
+#   * нет Mailpit: письма уходят через настоящий SMTP (FNSKIT_SMTP_*),
+#     без него регистрация не подтвердит почту. Поддерживается STARTTLS (порт
+#     587), неявный TLS на 465 — нет.
 #
-# Лимиты памяти, тома, capabilities и security_opt должны совпадать с
-# локальным файлом.
+# Лимиты памяти, процессора и журналов, тома, capabilities и security_opt
+# должны совпадать с локальным файлом; таблица лимитов — в его начале.
 
 name: fnskit
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "5m"
+    max-file: "3"
 
 services:
   processor:
@@ -61,13 +72,21 @@ services:
     # На сервере одно ядро, и Docker не принимает лимит больше доступного —
     # отсюда 1, а не 2, как в локальном файле. Обработка идёт по одной за раз
     # (MAX_CONCURRENT_JOBS=1), так что упор в одно ядро и есть потолок скорости.
+    # cpu_shares вдвое меньше обычного: пока идёт сборка файла, вход и кабинет
+    # должны оставаться отзывчивыми.
     cpus: 1
+    cpu_shares: 512
     # Худший разрешённый случай — страница на пределе MAX_PAGE_MEGAPIXELS=50 —
     # даёт пик 211 МБ (замерено; с числом страниц не растёт). Потолок с
     # запасом в полтора раза: при превышении ядро убивает контейнер целиком,
     # вместе с чужими запросами, поэтому впритык ставить нельзя.
     mem_limit: 320m
+    mem_reservation: 96m
+    # Если памяти на хосте всё же не хватит, первым должен погибнуть он: у него
+    # нет состояния, в отличие от Keycloak и базы.
+    oom_score_adj: 500
     pids_limit: 256
+    logging: *logging
     read_only: true
     # Рабочие файлы — на диск, а не в tmpfs: tmpfs это ОЗУ, а её на машине
     # мало. Именованный том (а не bind) наследует права из образа, поэтому
@@ -79,6 +98,206 @@ services:
     security_opt:
       - no-new-privileges:true
     # Процесс и так не root (uid 10001), capabilities ему не нужны вовсе.
+    cap_drop: [ALL]
+
+  # Одна база на двоих: аккаунты Keycloak (база keycloak) и документы кабинета
+  # (база cabinet). Роли и базы создаются при первом старте пустого тома, пароли
+  # из .env после этого уже ничего не меняют (backend/db/init).
+  db:
+    image: ghcr.io/sherhn/fnskit-db:${IMAGE_TAG:-latest}
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:?Задайте DB_ADMIN_PASSWORD в .env}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Задайте KEYCLOAK_DB_PASSWORD в .env}
+      CABINET_DB_PASSWORD: ${CABINET_DB_PASSWORD:?Задайте CABINET_DB_PASSWORD в .env}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=32MB
+      - -c
+      - max_connections=20
+      - -c
+      - work_mem=2MB
+      - -c
+      - maintenance_work_mem=16MB
+    restart: unless-stopped
+    networks:
+      - backend
+    # По TCP, а не через сокет: на первом старте временный сервер entrypoint
+    # слушает только сокет, и проверка по нему сказала бы «готово» до того, как
+    # скрипты создали базы.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    cpus: 0.5
+    mem_limit: 160m
+    mem_reservation: 96m
+    pids_limit: 64
+    logging: *logging
+    user: "70:70"
+    read_only: true
+    tmpfs:
+      - /var/run/postgresql:size=1m,uid=70,gid=70
+      - /tmp:size=16m,uid=70,gid=70
+    volumes:
+      - db:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+  # Аккаунты: регистрация, вход, сброс пароля и двухфакторная защита (TOTP).
+  # Публично доступен только через nginx по /auth/ на домене сайта.
+  keycloak:
+    image: ghcr.io/sherhn/fnskit-keycloak:${IMAGE_TAG:-latest}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      KC_DB_URL: jdbc:postgresql://db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Задайте KEYCLOAK_DB_PASSWORD в .env}
+      KC_DB_POOL_INITIAL_SIZE: 1
+      KC_DB_POOL_MIN_SIZE: 1
+      KC_DB_POOL_MAX_SIZE: 5
+      # Все ссылки, адреса в discovery и издатель токенов строятся от
+      # публичного адреса сайта, а не от того, по какому адресу пришёл запрос.
+      KC_HOSTNAME: ${FNSKIT_SITE_URL:?Задайте FNSKIT_SITE_URL в .env}/auth
+      # Порт админки наружу не публикуется, nginx её тоже не отдаёт.
+      KC_HOSTNAME_ADMIN: http://localhost:8083/auth
+      # TLS снимает Traefik, до Keycloak доходит обычный HTTP от nginx.
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_PROXY_TRUSTED_ADDRESSES: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      # Временный администратор realm master создаётся при первом старте.
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Задайте KEYCLOAK_ADMIN_PASSWORD в .env}
+      # Куча задана числами (подробности — в docker-compose.yml).
+      JAVA_OPTS_KC_HEAP: -Xms64m -Xmx256m
+      # Подставляются в realm при первом импорте (backend/keycloak/realm).
+      FNSKIT_SITE_URL: ${FNSKIT_SITE_URL}
+      FNSKIT_SMTP_HOST: ${FNSKIT_SMTP_HOST:?Задайте FNSKIT_SMTP_HOST в .env}
+      FNSKIT_SMTP_PORT: ${FNSKIT_SMTP_PORT:-587}
+      FNSKIT_SMTP_FROM: ${FNSKIT_SMTP_FROM:-noreply@fnskit.sherhn.space}
+      FNSKIT_SMTP_STARTTLS: ${FNSKIT_SMTP_STARTTLS:-true}
+      FNSKIT_SMTP_AUTH: ${FNSKIT_SMTP_AUTH:-true}
+      FNSKIT_SMTP_USER: ${FNSKIT_SMTP_USER:-}
+      FNSKIT_SMTP_PASSWORD: ${FNSKIT_SMTP_PASSWORD:-}
+      # Секрет служебного клиента fnskit-cabinet-sync: им кабинет сверяет
+      # владельцев файлов с аккаунтами и удаляет файлы удалённых.
+      CABINET_KEYCLOAK_SYNC_SECRET: ${CABINET_KEYCLOAK_SYNC_SECRET:?Задайте CABINET_KEYCLOAK_SYNC_SECRET в .env}
+    restart: unless-stopped
+    # backend — к базе и от nginx; default — выход наружу к SMTP-серверу.
+    networks:
+      - backend
+      - default
+    cpus: 1
+    mem_limit: 576m
+    mem_reservation: 384m
+    pids_limit: 512
+    logging: *logging
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+      - /opt/keycloak/data/tmp:size=64m,uid=1000,gid=0
+      # Журнал менеджера транзакций. Распределённых (XA) транзакций у
+      # Keycloak нет, восстанавливать после рестарта нечего — хватает tmpfs.
+      - /opt/keycloak/data/transaction-logs:size=16m,uid=1000,gid=0
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+  # S3-совместимое хранилище для зашифрованных файлов кабинета. Свой RustFS
+  # внутри стека вместо внешнего S3; наружу порты не публикуются, консоль не
+  # нужна. Копия тома — единственный бэкап файлов, ключ шифрования
+  # (CABINET_ENCRYPTION_KEY) хранится отдельно от него.
+  s3:
+    image: rustfs/rustfs:1.0.4@sha256:ed9210d6411d77ffceb70d94b964a3cb7d225983368bc25bebe01e995293dcc2
+    environment:
+      RUSTFS_ACCESS_KEY: ${CABINET_S3_ACCESS_KEY:?Задайте CABINET_S3_ACCESS_KEY в .env}
+      RUSTFS_SECRET_KEY: ${CABINET_S3_SECRET_KEY:?Задайте CABINET_S3_SECRET_KEY в .env}
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ENABLE: "false"
+    restart: unless-stopped
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1:9000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    cpus: 0.5
+    mem_limit: 256m
+    mem_reservation: 64m
+    pids_limit: 128
+    logging: *logging
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,uid=10001,gid=10001
+      - /logs:size=16m,uid=10001,gid=10001
+    volumes:
+      - cabinet-s3:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+  # Кабинет компании: проверяет токены Keycloak, отдаёт профиль и набор
+  # документов, хранит загруженные файлы. Наружу — только через nginx.
+  cabinet:
+    image: ghcr.io/sherhn/fnskit-cabinet:${IMAGE_TAG:-latest}
+    depends_on:
+      db:
+        condition: service_healthy
+      s3:
+        condition: service_healthy
+    environment:
+      KEYCLOAK_ISSUER: ${FNSKIT_SITE_URL:?Задайте FNSKIT_SITE_URL в .env}/auth/realms/fnskit
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/auth/realms/fnskit/protocol/openid-connect/certs
+      DB_HOST: db
+      DB_PASSWORD: ${CABINET_DB_PASSWORD:?Задайте CABINET_DB_PASSWORD в .env}
+      ENCRYPTION_KEY: ${CABINET_ENCRYPTION_KEY:?Задайте CABINET_ENCRYPTION_KEY в .env}
+      # Шифротекст файлов — в S3; здесь это сервис s3 выше, бакет создаётся сам.
+      S3_ENDPOINT_URL: ${CABINET_S3_ENDPOINT_URL:-http://s3:9000}
+      S3_REGION: ${CABINET_S3_REGION:-us-east-1}
+      S3_BUCKET: ${CABINET_S3_BUCKET:-fnskit-documents}
+      S3_ACCESS_KEY: ${CABINET_S3_ACCESS_KEY:?Задайте CABINET_S3_ACCESS_KEY в .env}
+      S3_SECRET_KEY: ${CABINET_S3_SECRET_KEY:?Задайте CABINET_S3_SECRET_KEY в .env}
+      S3_PATH_STYLE: ${CABINET_S3_PATH_STYLE:-true}
+      S3_CREATE_BUCKET: ${CABINET_S3_CREATE_BUCKET:-true}
+      PUBLIC_URL: ${FNSKIT_SITE_URL}
+      # Сверка аккаунтов: файлы удалённого аккаунта удаляются при следующей
+      # сверке (ACCOUNT_SYNC_MINUTES, по умолчанию 10 минут).
+      KEYCLOAK_ADMIN_URL: http://keycloak:8080/auth
+      KEYCLOAK_SYNC_CLIENT_SECRET: ${CABINET_KEYCLOAK_SYNC_SECRET:?Задайте CABINET_KEYCLOAK_SYNC_SECRET в .env}
+      # Письма-напоминания о сроках документов идут через тот же SMTP, что и
+      # письма Keycloak.
+      SMTP_HOST: ${FNSKIT_SMTP_HOST:?Задайте FNSKIT_SMTP_HOST в .env}
+      SMTP_PORT: ${FNSKIT_SMTP_PORT:-587}
+      SMTP_FROM: ${FNSKIT_SMTP_FROM:-noreply@fnskit.sherhn.space}
+      SMTP_STARTTLS: ${FNSKIT_SMTP_STARTTLS:-true}
+      SMTP_USER: ${FNSKIT_SMTP_USER:-}
+      SMTP_PASSWORD: ${FNSKIT_SMTP_PASSWORD:-}
+    restart: unless-stopped
+    # backend — к базе, хранилищу и от nginx; default — выход к внешнему SMTP.
+    networks:
+      - backend
+      - default
+    cpus: 0.5
+    # Пока файл шифруется или расшифровывается, он целиком в памяти: до двух
+    # передач по 20 МБ одновременно (MAX_CONCURRENT_TRANSFERS) плюс копии.
+    mem_limit: 256m
+    mem_reservation: 96m
+    pids_limit: 64
+    logging: *logging
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m
+    security_opt:
+      - no-new-privileges:true
     cap_drop: [ALL]
 
   # Единственный публичный сервис: раздаёт статику сайта и проксирует API.
@@ -108,7 +327,9 @@ services:
     cpus: 0.5
     # Пик 24 МБ: тело загрузки не буферизуется, ответ отдаётся потоком.
     mem_limit: 48m
+    mem_reservation: 16m
     pids_limit: 128
+    logging: *logging
     read_only: true
     tmpfs:
       - /var/cache/nginx:size=64m,mode=0755
@@ -127,7 +348,8 @@ networks:
   # именам, но скомпрометированный контейнер — в первую очередь processor с
   # его парсерами недоверенных файлов — не достучится ни до интернета, ни до
   # шлюза хоста, а значит и до опубликованных портов других проектов на общем
-  # сервере.
+  # сервере. Выход наружу (сеть default) есть только у Keycloak и кабинета:
+  # им нужен почтовый сервер.
   backend:
     internal: true
   # Сеть Traefik из Dokploy. Локально её нужно создать один раз:
@@ -137,3 +359,5 @@ networks:
 
 volumes:
   processor-workspace:
+  db:
+  cabinet-s3:

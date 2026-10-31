@@ -64,21 +64,30 @@ TLS, сертификаты и редирект с `http` делает Traefik �
 
 ## Деплой
 
-На сервере используется `docker-compose.prod.yml`: он отличается от основного
-файла только тем, что берёт готовые образы из `ghcr.io/sherhn/fnskit-*`
-вместо сборки. Собирать на машине с 400 МБ ОЗУ дорого — сборка съедает больше,
-чем весь работающий стек.
+На сервере используется `docker-compose.prod.yml`: весь стек (сайт, processor,
+база, Keycloak, кабинет, хранилище файлов), но образы своих сервисов берутся
+готовыми из `ghcr.io/sherhn/fnskit-*` вместо сборки. Собирать на маленьком
+сервере дорого — сборка Keycloak и PyMuPDF съедает больше, чем весь работающий
+стек, поэтому образы собираются на своём компьютере и отправляются в реестр
+(нужен `docker login ghcr.io`).
 
 ```bash
 export IMAGE_TAG=$(git rev-parse --short HEAD)
 docker build -t ghcr.io/sherhn/fnskit-nginx:$IMAGE_TAG ../site
 docker build -t ghcr.io/sherhn/fnskit-processor:$IMAGE_TAG ./processor
-for name in nginx processor; do
+docker build -t ghcr.io/sherhn/fnskit-cabinet:$IMAGE_TAG ./cabinet
+docker build -t ghcr.io/sherhn/fnskit-keycloak:$IMAGE_TAG ./keycloak
+docker build -t ghcr.io/sherhn/fnskit-db:$IMAGE_TAG ./db
+for name in nginx processor cabinet keycloak db; do
   docker tag ghcr.io/sherhn/fnskit-$name:$IMAGE_TAG ghcr.io/sherhn/fnskit-$name:latest
   docker push ghcr.io/sherhn/fnskit-$name:$IMAGE_TAG
   docker push ghcr.io/sherhn/fnskit-$name:latest
 done
 ```
+
+Хранилище файлов `s3` (RustFS) берётся публичным образом, его собирать не нужно.
+Почту в продакшене отправляет настоящий SMTP: без `FNSKIT_SMTP_HOST` стек не
+запустится, а без почты не подтвердить адрес при регистрации.
 
 В продакшене ни один порт на хост не публикуется: сервер общий с другими
 проектами Dokploy, и `8080` или `8082` там могут быть уже заняты. Наружу
