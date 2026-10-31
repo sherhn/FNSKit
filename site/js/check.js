@@ -322,8 +322,8 @@
       }
 
       const report = await response.json();
-      if (currentFile && report.total_pages) {
-        updateUploadedFileCard(currentFile, report.total_pages);
+      if (currentFile && report.page_count) {
+        updateUploadedFileCard(currentFile, report.page_count);
       }
       renderReport(report);
     } catch (err) {
