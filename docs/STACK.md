@@ -18,9 +18,9 @@
 [ nginx (контейнер site) ] ─── раздача статики (HTML, CSS, JS, WOFF2)
          │
          ├─── /api/processor/*  ──► [ processor (FastAPI, :8080) ]
-         ├─── /api/cabinet/*    ──► [ cabinet (FastAPI, :8080) ] ──► [ cabinet-db (PostgreSQL 17) ]
+         ├─── /api/cabinet/*    ──► [ cabinet (FastAPI, :8080) ] ──► [ db (PostgreSQL 17, база cabinet) ]
          │                                                    └──► [ S3 (шифротекст файлов) ]
-         └─── /auth/*           ──► [ keycloak (:8080) ]         ──► [ keycloak-db (PostgreSQL 17) ]
+         └─── /auth/*           ──► [ keycloak (:8080) ]         ──► [ db (PostgreSQL 17, база keycloak) ]
 ```
 
 ---
@@ -101,13 +101,13 @@
   * `asyncpg` (`0.32.0`) — асинхронный драйвер PostgreSQL;
   * `PyJWT[crypto]` (`2.15.1`) и `cryptography` (`50.0.2`) — валидация JWT-токенов Keycloak;
   * `pydantic-settings` (`2.14.2`), `httpx` (`0.28.1`).
-* **База данных (`cabinet-db`):** PostgreSQL `17-alpine`. Хранит метаданные постоянных документов, хеши токенов общего доступа, сроки и очередь объектов на удаление.
+* **База данных (`cabinet` в сервисе `db`):** PostgreSQL `17-alpine`, один экземпляр на кабинет и Keycloak: две базы, две роли с разными паролями, чужая база роли недоступна (`backend/db/init`). Хранит метаданные постоянных документов, хеши токенов общего доступа, сроки и очередь объектов на удаление.
 * **Хранилище файлов:** любой S3-совместимый бакет, клиент свой (`app/objects.py`, подпись AWS SigV4 поверх `httpx`, без boto3). В бакете только шифротекст AES-256-GCM. Локально — **RustFS** `1.0.4` (сервис `s3` в `docker-compose.yml`, консоль на `localhost:9001`).
 
 ### Идентификация (`keycloak`)
 * **Сервис:** Keycloak `26` (Quarkus runtime).
 * **Протоколы:** OpenID Connect, OAuth 2.0.
-* **База данных (`keycloak-db`):** PostgreSQL `17-alpine`.
+* **База данных (`keycloak` в сервисе `db`):** тот же экземпляр PostgreSQL, отдельная база и роль.
 * **Темизация:** Кастомная тема в `backend/keycloak/themes/fnskit/`.
 
 ---

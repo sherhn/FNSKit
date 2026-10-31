@@ -50,27 +50,49 @@ services:
     # Процесс и так не root (uid 10001), capabilities ему не нужны вовсе.
     cap_drop: [ALL]
 
-  # База Keycloak: аккаунты, сессии, настройки realm. Только внутренняя сеть.
-  keycloak-db:
-    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+  # Одна база на двоих: аккаунты Keycloak (база keycloak) и документы кабинета
+  # (база cabinet). Два экземпляра Postgres держали бы в памяти два процесса
+  # ради двух крошечных баз, поэтому экземпляр один, а разделение остаётся на
+  # уровне баз и ролей: у каждой роли свой пароль, и к чужой базе она не может
+  # даже подключиться (backend/db/init). Только внутренняя сеть.
+  #
+  # Роли и базы создаются при первом старте пустого тома. Пароли из .env после
+  # этого уже ничего не меняют: сменить их можно только внутри базы.
+  db:
+    build:
+      context: ./db
     environment:
-      POSTGRES_DB: keycloak
-      POSTGRES_USER: keycloak
-      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Задайте KEYCLOAK_DB_PASSWORD в .env}
-    # Буферов и соединений — под одну маленькую базу: пул Keycloak ограничен
-    # десятью соединениями (KC_DB_POOL_MAX_SIZE).
-    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=20"]
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:?Задайте DB_ADMIN_PASSWORD в .env}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Задайте KEYCLOAK_DB_PASSWORD в .env}
+      CABINET_DB_PASSWORD: ${CABINET_DB_PASSWORD:?Задайте CABINET_DB_PASSWORD в .env}
+    # Соединений — под обоих клиентов: пул Keycloak до 5 (KC_DB_POOL_MAX_SIZE),
+    # пул кабинета до 4, остальное — запас и служебные подключения.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=32MB
+      - -c
+      - max_connections=20
+      - -c
+      - work_mem=2MB
+      - -c
+      - maintenance_work_mem=16MB
     restart: unless-stopped
     networks:
       - backend
+    # Проверка идёт по TCP, а не через сокет: на первом старте entrypoint
+    # поднимает временный сервер только на сокете, выполняет скрипты инициализации
+    # и лишь потом слушает TCP. Проверка по сокету сказала бы «готово» раньше
+    # времени, и Keycloak пошёл бы в ещё не созданную базу.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 30s
     cpus: 0.5
-    mem_limit: 128m
+    mem_limit: 160m
     pids_limit: 64
     # Сразу от пользователя postgres (uid 70 в alpine-образе): entrypoint не
     # переключается с root, поэтому capabilities не нужны.
@@ -80,7 +102,7 @@ services:
       - /var/run/postgresql:size=1m,uid=70,gid=70
       - /tmp:size=16m,uid=70,gid=70
     volumes:
-      - keycloak-db:/var/lib/postgresql/data
+      - db:/var/lib/postgresql/data
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
@@ -91,15 +113,15 @@ services:
     build:
       context: ./keycloak
     depends_on:
-      keycloak-db:
+      db:
         condition: service_healthy
     environment:
-      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_URL: jdbc:postgresql://db:5432/keycloak
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Задайте KEYCLOAK_DB_PASSWORD в .env}
       KC_DB_POOL_INITIAL_SIZE: 1
       KC_DB_POOL_MIN_SIZE: 1
-      KC_DB_POOL_MAX_SIZE: 10
+      KC_DB_POOL_MAX_SIZE: 5
       # Все ссылки, адреса в discovery и издатель токенов строятся от
       # публичного адреса сайта, а не от того, по какому адресу пришёл запрос.
       # cabinet берёт ключи по внутреннему http://keycloak:8080 — это работает
@@ -144,38 +166,6 @@ services:
       # Журнал менеджера транзакций. Распределённых (XA) транзакций у
       # Keycloak нет, восстанавливать после рестарта нечего — хватает tmpfs.
       - /opt/keycloak/data/transaction-logs:size=16m,uid=1000,gid=0
-    security_opt:
-      - no-new-privileges:true
-    cap_drop: [ALL]
-
-  # База кабинета: загруженные документы (зашифрованные) и ссылки на них.
-  # Отдельно от базы Keycloak: свои доступы, свои резервные копии.
-  cabinet-db:
-    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-    environment:
-      POSTGRES_DB: cabinet
-      POSTGRES_USER: cabinet
-      POSTGRES_PASSWORD: ${CABINET_DB_PASSWORD:?Задайте CABINET_DB_PASSWORD в .env}
-    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=20"]
-    restart: unless-stopped
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cabinet -d cabinet"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    cpus: 0.5
-    mem_limit: 128m
-    pids_limit: 64
-    user: "70:70"
-    read_only: true
-    tmpfs:
-      - /var/run/postgresql:size=1m,uid=70,gid=70
-      - /tmp:size=16m,uid=70,gid=70
-    volumes:
-      - cabinet-db:/var/lib/postgresql/data
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
@@ -227,14 +217,14 @@ services:
     build:
       context: ./cabinet
     depends_on:
-      cabinet-db:
+      db:
         condition: service_healthy
       s3:
         condition: service_healthy
     environment:
       KEYCLOAK_ISSUER: ${FNSKIT_SITE_URL}/auth/realms/fnskit
       KEYCLOAK_JWKS_URL: http://keycloak:8080/auth/realms/fnskit/protocol/openid-connect/certs
-      DB_HOST: cabinet-db
+      DB_HOST: db
       DB_PASSWORD: ${CABINET_DB_PASSWORD:?Задайте CABINET_DB_PASSWORD в .env}
       ENCRYPTION_KEY: ${CABINET_ENCRYPTION_KEY:?Задайте CABINET_ENCRYPTION_KEY в .env}
       # Шифротекст файлов — в S3; локально это сервис s3 выше.
@@ -345,6 +335,5 @@ networks:
 
 volumes:
   processor-workspace:
-  keycloak-db:
-  cabinet-db:
+  db:
   cabinet-s3:

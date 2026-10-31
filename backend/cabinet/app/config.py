@@ -36,9 +36,10 @@ class Settings(BaseSettings):
     jwks_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
 
     # --- Хранение документов ---
-    # Своя база Postgres (cabinet-db), не база Keycloak. Параметры раздельно,
-    # а не DSN: пароль из base64 с «+», «/» и «=» сломал бы разбор URL.
-    db_host: str = "cabinet-db"
+    # Своя база cabinet в общем с Keycloak экземпляре Postgres (сервис db), под
+    # своей ролью. Параметры раздельно, а не DSN: пароль из base64 с «+», «/»
+    # и «=» сломал бы разбор URL.
+    db_host: str = "db"
     db_port: int = 5432
     db_name: str = "cabinet"
     db_user: str = "cabinet"
