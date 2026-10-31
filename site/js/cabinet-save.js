@@ -30,6 +30,10 @@
   let current = null; // { file, filename }
   let block = null;
 
+  // События Umami (js/stats.js): только числа и короткие коды, без имён файлов.
+  const track = (name, data) => window.FNSKIT_STATS?.track(name, data);
+  const format = () => window.FNSKIT_STATS?.extension(current?.filename);
+
   function element(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -187,8 +191,10 @@
   async function startSaving(trigger) {
     trigger.disabled = true;
     setStatus("Проверяем вход…");
+    track("cabinet_save_clicked", { format: format() });
     try {
       if (!(await signedIn())) {
+        track("cabinet_save_login_required", { format: format() });
         await stashResult(current.file, current.filename);
         setStatus("Открываем вход в аккаунт…");
         await keycloak.login({ redirectUri: PAGE_URL });
@@ -270,7 +276,12 @@
         headers: { "Content-Type": "application/octet-stream" },
         body: current.file
       });
-      if (!response.ok) throw await failure(response, "Не удалось сохранить файл.");
+      if (!response.ok) {
+        const error = await failure(response, "Не удалось сохранить файл.");
+        error.status = response.status;
+        throw error;
+      }
+      track("cabinet_saved", { kind, format: format(), size_mb: window.FNSKIT_STATS?.megabytes(current.file.size) });
       await dropPending();
       const { body } = ensureBlock();
       const link = element("a", "font-extrabold text-lime underline underline-offset-2", "Открыть кабинет");
@@ -287,6 +298,7 @@
         showOffer();
         return;
       }
+      track("cabinet_save_failed", { kind, format: format(), status: error.status ?? "other" });
       setStatus(error.message || "Не удалось сохранить файл.", "error");
     }
   }

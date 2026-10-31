@@ -49,6 +49,12 @@
     registration: "/editor-dlya-registracii",
     custom: "/editor-custom"
   };
+  // События Umami (js/stats.js): только числа и короткие коды, без имён файлов.
+  const track = (name, data) => window.FNSKIT_STATS?.track(name, data);
+  const megabytes = bytes => window.FNSKIT_STATS?.megabytes(bytes);
+  // Когда в этой загрузке страницы появились первые страницы будущего файла:
+  // от этого момента считаем время до готового результата.
+  let workStartedAt = null;
   const profileButtons = [...document.querySelectorAll(".profile-button")];
   const profileSummary = document.getElementById("profileSummary");
   const profileTitle = document.getElementById("profileTitle");
@@ -1167,6 +1173,7 @@
     const invalid = incoming.find(file => !allowedExtensions.has(file.name.split(".").pop()?.toLowerCase()));
     if (invalid) {
       showError(`Формат файла «${invalid.name}» не поддерживается. Добавьте PDF, JPG, PNG или TIFF.`);
+      track("file_rejected", { profile: activeFile().profile, reason: "format" });
       return;
     }
 
@@ -1184,6 +1191,7 @@
     const totalSize = poolSize() + newSources.reduce((total, file) => total + file.size, 0);
     if (totalSize > maxTotalSize) {
       showError(`Общий размер всех файлов не должен превышать ${formatBytes(maxTotalSize)}.`);
+      track("file_rejected", { profile: activeFile().profile, reason: "size" });
       return;
     }
 
@@ -1195,18 +1203,28 @@
       const newPages = expanded.filter(page => !existingPages.has(page.id));
       if (!newPages.length) {
         showError("Эти страницы уже добавлены в текущий файл.");
+        track("file_rejected", { profile: target.profile, reason: "duplicate" });
         return;
       }
       if (target.pages.length + newPages.length > maxPagesPerFile) {
         showError(`В одном итоговом файле может быть не больше ${pluralPages(maxPagesPerFile)}.`);
+        track("file_rejected", { profile: target.profile, reason: "pages" });
         return;
       }
       sourceDocuments.push(...newSources);
       target.pages.push(...newPages);
+      if (workStartedAt === null) workStartedAt = Date.now();
+      track("files_added", {
+        profile: target.profile,
+        files: uniqueIncoming.length,
+        pages: newPages.length,
+        total_pages: target.pages.length
+      });
       await saveEditorState();
       renderEditor();
     } catch (error) {
       showError(`Не удалось прочитать страницы документа. ${error.message || "Проверьте файл и попробуйте снова."}`);
+      track("file_rejected", { profile: activeFile().profile, reason: "read" });
     } finally {
       setReadingState(false);
     }
@@ -1295,6 +1313,7 @@
     modal.addEventListener("click", event => { if (event.target === modal) close(); });
     modal.querySelector("[data-view-result]").addEventListener("click", async () => {
       const button = modal.querySelector("[data-view-result]");
+      track("result_viewer_opened");
       button.disabled = true;
       button.textContent = "Открываем…";
       try {
@@ -1358,13 +1377,15 @@
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       const detail = payload.detail;
+      // Код ответа нужен статистике: по тексту ошибки её не разобрать, а в нём бывают имена файлов.
+      const rejected = message => Object.assign(new Error(message), { status: response.status });
       if (detail && typeof detail === "object" && Number.isInteger(detail.source_index)) {
         const source = uploads[detail.source_index];
         const fileLabel = source ? `Файл «${source.name}»` : `Файл №${detail.source_index + 1}`;
         const pageLabel = Number.isInteger(detail.page_number) ? `, страница ${detail.page_number}` : "";
-        throw new Error(`${fileLabel}${pageLabel}. ${detail.message || "Не удалось обработать файл."}`);
+        throw rejected(`${fileLabel}${pageLabel}. ${detail.message || "Не удалось обработать файл."}`);
       }
-      throw new Error(typeof detail === "string" ? detail : `Не удалось подготовить ${formatLabel}.`);
+      throw rejected(typeof detail === "string" ? detail : `Не удалось подготовить ${formatLabel}.`);
     }
 
     const pageCount = Number(response.headers.get("X-Page-Count") || pageOrder.length);
@@ -1394,6 +1415,7 @@
     createModal.classList.add("flex");
     createModal.setAttribute("aria-hidden", "false");
     document.body.classList.add("overflow-hidden");
+    track("create_opened", { profile: activeFile().profile, pages: activePages().length });
     requestAnimationFrame(() => consentCheckbox.focus());
   }
 
@@ -1483,6 +1505,7 @@
   profileButtons.forEach(button => button.addEventListener("click", async () => {
     const profile = button.dataset.profile;
     if (!profiles[profile] || isProcessing || isReadingFiles) return;
+    track("profile_selected", { from: activeProfile, to: profile });
     selectProfile(profile);
     await saveEditorState();
     window.location.href = profilePages[profile];
@@ -1849,13 +1872,32 @@
       modalCreateError.textContent = "Отметьте согласие на обработку персональных данных.";
       modalCreateError.classList.remove("hidden");
       consentCheckbox.focus();
+      track("create_blocked", { profile: activeFile().profile, reason: "consent" });
       return;
     }
     hideCreateMessage();
     window.FNSKIT_CABINET_SAVE?.reset();
     setProcessingState(true);
+    const profile = activeFile().profile;
+    const buildStartedAt = Date.now();
     try {
       const result = await createDocument();
+      track("file_created", {
+        profile,
+        format: result.formatLabel.toLowerCase(),
+        pages: result.pageCount,
+        size_mb: megabytes(result.file.size),
+        build_seconds: Math.round((Date.now() - buildStartedAt) / 1000),
+        // От первых добавленных страниц до готового файла; пусто, если страницы
+        // пришли из прошлого визита.
+        total_seconds: workStartedAt === null ? undefined : Math.round((Date.now() - workStartedAt) / 1000),
+        ...(profile === "custom" ? {
+          dpi: customDpi?.value,
+          color: customColor?.value,
+          compression: customCompression?.value
+        } : {})
+      });
+      workStartedAt = null;
       closeCreateModal(true);
       showCreateMessage(`Файл «${result.filename}» готов: ${pluralPages(result.pageCount)}. Скачивание началось.`);
       // Готовый файл можно положить в кабинет компании (js/cabinet-save.js).
@@ -1867,6 +1909,7 @@
       const format = activeFile().outputFormat === "pdf" ? "PDF" : "TIFF";
       modalCreateError.textContent = error.message || `Не удалось подготовить ${format}.`;
       modalCreateError.classList.remove("hidden");
+      track("file_create_failed", { profile, format: format.toLowerCase(), status: error.status ?? "other" });
     } finally {
       setProcessingState(false);
     }

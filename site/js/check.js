@@ -28,6 +28,13 @@
   const allowedExtensions = new Set(["pdf", "tif", "tiff"]);
   const maxFileSize = 100 * 1024 * 1024;
   const consentVersion = "2026-10-17.1";
+
+  // События Umami (js/stats.js): только числа и короткие коды, без имён файлов.
+  const track = (name, data) => window.FNSKIT_STATS?.track(name, data);
+  const megabytes = bytes => window.FNSKIT_STATS?.megabytes(bytes);
+  const extension = filename => window.FNSKIT_STATS?.extension(filename);
+  // Коды проверок с нужным статусом («dpi,color»): что именно не так с файлом.
+  const checkIds = (report, status) => report.checks.filter(check => check.status === status).map(check => check.id).join(",");
   const fileStoreDatabase = "fnskit-editor";
   const fileStoreName = "documents";
   const processorApiBase = window.FNSKIT_PROCESSOR_API || "http://localhost:8080";
@@ -221,11 +228,13 @@
     const ext = file.name.split(".").pop()?.toLowerCase();
     if (!allowedExtensions.has(ext)) {
       showError(`Формат «.${ext || "неизвестно"}» не поддерживается. Загрузите PDF или TIFF.`);
+      track("check_rejected", { profile: activeProfile, reason: "format" });
       return;
     }
 
     if (file.size > maxFileSize) {
       showError("Размер файла превышает 100 МБ. Уменьшите объём файла перед проверкой.");
+      track("check_rejected", { profile: activeProfile, reason: "size" });
       return;
     }
 
@@ -233,6 +242,7 @@
       showError("Подтвердите согласие на обработку данных ниже, чтобы разблокировать загрузку.");
       updateConsentUI();
       consentCheckbox?.focus();
+      track("check_rejected", { profile: activeProfile, reason: "consent" });
       return;
     }
 
@@ -288,6 +298,7 @@
   async function performInspection(file) {
     setLoading(true, `Анализируем ${file.name}…`);
     showError("");
+    track("check_started", { profile: activeProfile, format: extension(file.name), size_mb: megabytes(file.size) });
     if (resultsSection) resultsSection.classList.add("hidden");
 
     const formData = new FormData();
@@ -318,16 +329,26 @@
         } catch {
           // keep fallback
         }
-        throw new Error(errorDetail);
+        throw Object.assign(new Error(errorDetail), { status: response.status });
       }
 
       const report = await response.json();
+      track("check_result", {
+        profile: activeProfile,
+        status: report.summary.status,
+        pages: report.page_count,
+        errors: report.summary.error_count,
+        warnings: report.summary.warning_count,
+        failed: checkIds(report, "error"),
+        warned: checkIds(report, "warning")
+      });
       if (currentFile && report.page_count) {
         updateUploadedFileCard(currentFile, report.page_count);
       }
       renderReport(report);
     } catch (err) {
       showError(err.message || "Ошибка проверки документа на сервере.");
+      track("check_failed", { profile: activeProfile, status: err.status ?? "other" });
     } finally {
       setLoading(false);
     }
@@ -455,6 +476,7 @@
     if (fixInEditorBtn) {
       const targetEditorUrl = profiles[activeProfile]?.editorUrl || "/editor-dlya-fns";
       fixInEditorBtn.onclick = async () => {
+        track("check_fix_in_editor", { profile: activeProfile, status: sum.status, failed: checkIds(report, "error") });
         await transferFileToEditor(targetEditorUrl);
       };
     }
