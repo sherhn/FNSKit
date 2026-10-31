@@ -59,6 +59,13 @@
   let keycloak = null;
   let pendingAction = null;
 
+  // События Umami (js/stats.js): только числа и короткие коды, без имён файлов
+  // и текстов ошибок.
+  const track = (name, data) => window.FNSKIT_STATS?.track(name, data);
+  const megabytes = (bytes) => window.FNSKIT_STATS?.megabytes(bytes);
+  // Что сказать статистике об ошибке: код ответа, «expired» для истёкшей сессии или «other».
+  const failureCode = (error) => (error instanceof SessionExpired ? "expired" : error.status ?? "other");
+
   function showState(id) {
     for (const state of STATES) $(state).classList.toggle("hidden", state !== id);
     const signedIn = id === "stateUser";
@@ -323,6 +330,7 @@
         });
         if (!response.ok) throw await failure(response, "Не удалось создать ссылку.");
         createdLink = { fileId: file.id, link: await response.json() };
+        track("share_link_created", { kind: file.kind, days: Number(days.value()), downloads: limit.value() || "unlimited" });
         await refreshFiles();
       } catch (error) {
         create.disabled = false;
@@ -342,6 +350,7 @@
             const response = await authorizedFetch(`${CABINET_API}/v1/links/${link.id}`, { method: "DELETE" });
             if (!response.ok && response.status !== 404) throw await failure(response, "Не удалось отозвать ссылку.");
             if (createdLink && createdLink.link.id === link.id) createdLink = null;
+            track("share_link_revoked", { kind: file.kind });
             showMessage($("userMessage"), "Ссылка отозвана: по ней больше нельзя скачать файл.", "neutral");
             await refreshFiles();
           } catch (error) {
@@ -365,6 +374,7 @@
         body: JSON.stringify({ doc_date: value || null })
       });
       if (!response.ok) throw await failure(response, "Не удалось сохранить дату.");
+      track("document_date_set", { kind: file.kind, cleared: !value });
       editingDateFileId = null;
       showMessage(
         $("userMessage"),
@@ -632,6 +642,7 @@
       });
       if (!response.ok) throw await failure(response, "Не удалось изменить настройку.");
       cabinet.reminders = await response.json();
+      track("reminders_toggled", { enabled: next });
       renderReminders();
     } catch (error) {
       reportFileError(error, "Не удалось изменить настройку.");
@@ -712,6 +723,7 @@
       // Документу со сроком сразу предлагаем указать дату — из этого и
       // складываются напоминания.
       const doc = docsById().get(kind);
+      track("document_uploaded", { kind, size_mb: megabytes(file.size), dated: Boolean(doc && doc.date_kind) });
       if (doc && doc.date_kind) editingDateFileId = stored.id;
       showMessage(
         $("userMessage"),
@@ -722,6 +734,7 @@
       );
       await refreshFiles();
     } catch (error) {
+      track("document_upload_failed", { kind, status: failureCode(error) });
       reportFileError(error, "Не удалось загрузить файл.");
       renderDocuments();
     }
@@ -745,6 +758,7 @@
       });
       if (!response.ok) throw await failure(response, "Не удалось скачать файл.");
       saveBlob(await response.blob(), file.filename);
+      track("document_downloaded", { kind: file.kind });
     } catch (error) {
       reportFileError(error, "Не удалось скачать файл.");
     }
@@ -758,6 +772,7 @@
       if (!response.ok && response.status !== 404) throw await failure(response, "Не удалось удалить файл.");
       if (sharingFileId === file.id) sharingFileId = null;
       if (editingDateFileId === file.id) editingDateFileId = null;
+      track("document_deleted", { kind: file.kind });
       showMessage($("userMessage"), `Файл «${file.filename}» удалён.`, "neutral");
       await refreshFiles();
     } catch (error) {
@@ -1021,12 +1036,14 @@
         throw new Error("Архив оборвался при скачивании. Попробуйте ещё раз через минуту.");
       }
       saveBlob(blob, `${title}.zip`);
+      track("package_built", { preset: packageState.preset, files: chosen.length });
       packageStatus(`Архив скачан: ${plural(chosen.length, "файл", "файла", "файлов")} и опись.`, "success");
     } catch (error) {
       if (error instanceof SessionExpired) {
         showGuest("Сессия истекла. Войдите снова.");
         return;
       }
+      track("package_failed", { preset: packageState.preset, status: failureCode(error) });
       packageStatus(error.message || "Не удалось собрать архив.", "error");
     } finally {
       if (packageNodes && packageNodes.download === trigger) {
@@ -1080,6 +1097,7 @@
   // --- Действия Keycloak --------------------------------------------------------------
 
   function runAction(action) {
+    track("account_action", { action });
     keycloak.login({ action, redirectUri: RETURN_URL });
   }
 
@@ -1088,8 +1106,9 @@
     if (!pendingAction) return null;
     const { status, action } = pendingAction;
     pendingAction = null;
-    if (status === "error") return { text: "Действие не выполнено. Попробуйте ещё раз.", tone: "error" };
     const key = Object.keys(ACTION_MESSAGES).find((name) => action && action.startsWith(name));
+    track("account_action_result", { action: key || "other", status });
+    if (status === "error") return { text: "Действие не выполнено. Попробуйте ещё раз.", tone: "error" };
     if (!key || !ACTION_MESSAGES[key][status]) return null;
     return { text: ACTION_MESSAGES[key][status], tone: status === "success" ? "success" : "neutral" };
   }
@@ -1143,7 +1162,10 @@
   function bindTabs() {
     TABS.forEach((entry, index) => {
       const tab = $(entry.tab);
-      tab.addEventListener("click", () => selectTab(index));
+      tab.addEventListener("click", () => {
+        track("cabinet_tab", { tab: entry.hash.slice(1) });
+        selectTab(index);
+      });
       tab.addEventListener("keydown", (event) => {
         if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
         event.preventDefault();
@@ -1172,6 +1194,11 @@
       return;
     }
     showState("stateUser");
+    track("cabinet_visit", {
+      files: cabinet.files.length,
+      business: cabinet.profile.business_type || "none",
+      reminders: Boolean(cabinet.reminders && cabinet.reminders.email_reminders)
+    });
     // Вернулись из Keycloak после действия с аккаунтом — показываем результат
     // там, где он виден: на вкладке «Аккаунт».
     selectTab(pendingAction ? ACCOUNT_TAB : tabFromHash());
@@ -1190,8 +1217,14 @@
   }
 
   function bindButtons() {
-    $("loginButton").addEventListener("click", () => keycloak.login({ redirectUri: RETURN_URL }));
-    $("registerButton").addEventListener("click", () => keycloak.register({ redirectUri: RETURN_URL }));
+    $("loginButton").addEventListener("click", () => {
+      track("login_clicked");
+      keycloak.login({ redirectUri: RETURN_URL });
+    });
+    $("registerButton").addEventListener("click", () => {
+      track("register_clicked");
+      keycloak.register({ redirectUri: RETURN_URL });
+    });
     $("logoutButton").addEventListener("click", () => keycloak.logout({ redirectUri: RETURN_URL }));
     $("otpEnableButton").addEventListener("click", () => runAction("CONFIGURE_TOTP"));
     $("passwordButton").addEventListener("click", () => runAction("UPDATE_PASSWORD"));
