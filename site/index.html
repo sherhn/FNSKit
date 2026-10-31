@@ -4,25 +4,25 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex,nofollow" />
-  <meta name="description" content="Онлайн-сервис подготовки PDF и многостраничного TIFF для требований ФНС, НДС и электронной регистрации ООО или ИП: нужные DPI, цвет и сжатие уже настроены." />
-  <meta name="keywords" content="PDF для налоговой, TIFF для налоговой, PDF для ФНС, TIFF для ФНС, многостраничный PDF, многостраничный TIFF, TIFF для регистрации ООО, TIFF для регистрации ИП, 300 DPI" />
+  <meta name="description" content="Документооборот для ИП и микробизнеса: подготовить PDF и TIFF по требованиям ФНС, хранить постоянные документы, собрать пакет для банка или контрагента и отправить ссылкой. Без установки и учётной системы." />
+  <meta name="keywords" content="документы для ИП, документооборот для микробизнеса, пакет документов для банка, документы для ФНС, ответ на требование ФНС, PDF для налоговой, TIFF для ФНС, TIFF для регистрации ООО, хранение документов ИП, кабинет ИП" />
   <link rel="canonical" href="https://fnskit.sherhn.space/" />
   <meta name="theme-color" content="#171815" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="ФНСКит" />
   <meta property="og:locale" content="ru_RU" />
-  <meta property="og:title" content="PDF и TIFF для ФНС, НДС и регистрации ООО/ИП — ФНСКит" />
-  <meta property="og:description" content="Подготовка PDF и многостраничного TIFF для требований ФНС, НДС и регистрации ООО или ИП. Готовые профили параметров." />
+  <meta property="og:title" content="ФНСКит — документы ИП и микробизнеса для ФНС, банка и контрагентов" />
+  <meta property="og:description" content="Подготовить файл по требованиям ФНС, хранить постоянные документы, собрать пакет для банка и отправить ссылкой — в одном сервисе." />
   <meta property="og:url" content="https://fnskit.sherhn.space/" />
   <meta property="og:image" content="https://fnskit.sherhn.space/images/og.png" />
   <meta property="og:image:width" content="1731" />
   <meta property="og:image:height" content="909" />
   <meta property="og:image:alt" content="ФНСКит — сервис подготовки PDF и TIFF для ФНС" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="PDF и TIFF для ФНС, НДС и регистрации ООО/ИП — ФНСКит" />
-  <meta name="twitter:description" content="Подготовка PDF и многостраничного TIFF для требований ФНС, НДС и регистрации ООО или ИП." />
+  <meta name="twitter:title" content="ФНСКит — документы ИП и микробизнеса для ФНС, банка и контрагентов" />
+  <meta name="twitter:description" content="Подготовить файл по требованиям ФНС, хранить постоянные документы, собрать пакет для банка и отправить ссылкой." />
   <meta name="twitter:image" content="https://fnskit.sherhn.space/images/og.png" />
-  <title>PDF и TIFF для ФНС, НДС и регистрации ООО/ИП — ФНСКит</title>
+  <title>ФНСКит — документы ИП и микробизнеса для ФНС, банка и контрагентов</title>
   <link rel="icon" href="/favicon.ico" type="image/x-icon" sizes="any" />
   <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png" />
   <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png" />
@@ -31,83 +31,23 @@
   <link rel="manifest" href="./site.webmanifest" />
   <link rel="preload" href="/fonts/manrope-variable.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="/fonts.css" />
-  <link rel="stylesheet" href="./css/tailwind.css?v=20260723-responsive" />
+  <link rel="stylesheet" href="./css/tailwind.css?v=20261031-home" />
   <link rel="stylesheet" href="./mobile.css?v=20261017-free" />
-  <script src="/js/config.js?v=20261017-api"></script>
   <style>
     body {
       background-image: radial-gradient(rgba(23, 24, 21, .06) .7px, transparent .7px);
       background-size: 9px 9px;
     }
-    .grid-lines {
-      background-image:
-        linear-gradient(rgba(23, 24, 21, .055) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(23, 24, 21, .055) 1px, transparent 1px);
-      background-size: 28px 28px;
+    .action-chevron {
+      font-size: 1.15em;
+      font-weight: 900;
     }
-    .marquee {
-      min-width: max-content;
-      animation: marquee 24s linear infinite;
-      will-change: transform;
-    }
-    .marquee > div { flex-shrink: 0; }
-    .float { animation: float 6s ease-in-out infinite; }
-    .home-page main > section:first-child > .grid {
-      display: block;
-      max-width: none;
-    }
-    .home-hero { display: block; }
-.hero-emphasis {
-  position: relative;
-  z-index: 0;
-  isolation: isolate;
-  display: inline-block;
-  padding: .03em .24em .08em;
-  font-weight: 900;
-  letter-spacing: -.03em;
-  -webkit-text-stroke: .55px currentColor;
-}
-.hero-emphasis::before,
-.hero-emphasis::after {
-  content: "";
-  position: absolute;
-  pointer-events: none;
-  z-index: -1;
-  border: 3.5px solid #c8ff18;
-}
-.hero-emphasis::before {
-  inset: -.13em -.18em -.1em;
-  border-radius: 47% 53% 49% 51% / 53% 45% 55% 47%;
-  transform: rotate(-2.25deg);
-}
-.hero-emphasis::after {
-  inset: -.1em -.14em -.14em;
-  border-width: 2.5px;
-  border-color: #d8ff58;
-  border-radius: 52% 48% 54% 46% / 46% 55% 45% 54%;
-  transform: rotate(1.4deg);
-}
-.action-chevron {
-  font-size: 1.15em;
-  font-weight: 900;
-}
-.action-chevron--centered {
-  display: grid;
-  place-items: center;
-  align-self: center;
-  line-height: 1;
-  transform: translateY(-.04em);
-}
-    @media (min-width: 1024px) {
-      .hero-copy { padding-top: 1.75rem; }
-    }
-    @keyframes marquee {
-      from { transform: translate3d(0, 0, 0); }
-      to { transform: translate3d(-25%, 0, 0); }
-    }
-    @keyframes float {
-      0%, 100% { transform: translateY(0) rotate(-2deg); }
-      50% { transform: translateY(-9px) rotate(1deg); }
+    .action-chevron--centered {
+      display: grid;
+      place-items: center;
+      align-self: center;
+      line-height: 1;
+      transform: translateY(-.04em);
     }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
@@ -138,7 +78,7 @@
         "@id": "https://fnskit.sherhn.space/#website",
         "url": "https://fnskit.sherhn.space/",
         "name": "ФНСКит",
-        "description": "Подготовка PDF и многостраничного TIFF для требований ФНС, НДС и регистрации ООО или ИП.",
+        "description": "Документооборот для ИП и микробизнеса: файлы по требованиям ФНС, постоянные документы, пакет для банка и отправка ссылкой.",
         "inLanguage": "ru-RU",
         "publisher": { "@id": "https://fnskit.sherhn.space/#organization" }
       },
@@ -151,7 +91,7 @@
         "operatingSystem": "Web",
         "browserRequirements": "Requires JavaScript. Requires HTML5.",
         "inLanguage": "ru-RU",
-        "description": "Онлайн-сервис подготовки PDF и многостраничного TIFF для требований ФНС, НДС и электронной регистрации ООО или ИП с готовыми профилями параметров.",
+        "description": "Онлайн-сервис для ИП и микробизнеса: подготовка PDF и многостраничного TIFF по требованиям ФНС, проверка готовых файлов, кабинет с постоянными документами, пакет под запрос банка или контрагента и отправка ссылкой со сроком.",
         "publisher": { "@id": "https://fnskit.sherhn.space/#organization" }
       }
     ]
@@ -159,104 +99,245 @@
   </script>
   <script defer src="https://stats.sherhn.space/script.js" data-website-id="7ad56a99-30ae-4e12-884b-7ba273a72e8a"></script>
 </head>
-<body class="home-page overflow-x-hidden bg-paper font-sans text-ink antialiased">
+<body class="overflow-x-hidden bg-paper font-sans text-ink antialiased">
   <header class="relative z-50">
     <nav class="mx-auto flex max-w-[1440px] items-center justify-between px-5 py-5 sm:px-8 lg:px-12" aria-label="Основная навигация">
-      <a href="#" class="group flex items-center gap-3" aria-label="ФНСКит — на главную">
+      <a href="/" class="group flex items-center gap-3" aria-label="ФНСКит — на главную">
         <img src="./images/logo.svg" alt="" class="h-10 w-10 shrink-0 transition-transform group-hover:-rotate-3" />
-        <span class="text-lg font-black tracking-[-0.07em]">ФНСКит</span>
+        <span class="hidden text-lg font-black tracking-[-0.07em] sm:block">ФНСКит</span>
       </a>
-
       <div class="hidden items-center gap-8 text-sm font-semibold md:flex">
+        <a class="transition-opacity hover:opacity-50" href="#features">Что внутри</a>
+        <a class="transition-opacity hover:opacity-50" href="#who">Для кого</a>
         <a class="transition-opacity hover:opacity-50" href="/check">Проверка документа</a>
-        <a class="transition-opacity hover:opacity-50" href="#directions">Два направления</a>
-        <a class="transition-opacity hover:opacity-50" href="#how">Как это работает</a>
         <a class="transition-opacity hover:opacity-50" href="#guides">Инструкции</a>
       </div>
-
       <div class="flex items-center gap-2 sm:gap-3">
-        <a href="/account" class="hidden rounded-full border border-ink/15 bg-white/70 px-4 py-3 text-sm font-bold backdrop-blur transition hover:border-ink hover:bg-white sm:block">Кабинет</a>
-        <a href="/editor-dlya-fns" class="rounded-full border border-lime bg-lime px-4 py-3 text-sm font-extrabold text-ink shadow-[0_8px_20px_rgba(200,255,50,.3)] transition hover:-translate-y-0.5 hover:border-ink hover:bg-ink hover:text-white sm:px-5">
-          <span class="sm:hidden">Редактор</span><span class="hidden sm:inline">Открыть редактор</span>
-        </a>
+        <a href="/editor-dlya-fns" class="hidden rounded-full border border-ink/15 bg-white/70 px-4 py-3 text-sm font-bold backdrop-blur transition hover:border-ink hover:bg-white sm:block">Редактор</a>
+        <a href="/account" class="rounded-full border border-lime bg-lime px-4 py-3 text-sm font-extrabold text-ink shadow-[0_8px_20px_rgba(200,255,50,.3)] transition hover:-translate-y-0.5 hover:border-ink hover:bg-ink hover:text-white sm:px-5">Кабинет</a>
       </div>
     </nav>
   </header>
 
   <main>
-    <section class="relative mx-auto max-w-[1440px] px-5 pb-20 pt-10 sm:px-8 lg:px-12 lg:pb-28 lg:pt-16">
-      <div class="absolute -right-32 top-0 -z-10 h-[520px] w-[520px] rounded-full bg-lime/30 blur-[100px]"></div>
-      <div class="absolute -left-56 top-48 -z-10 h-[420px] w-[420px] rounded-full bg-violet/10 blur-[110px]"></div>
-
-      <div class="grid items-start gap-14 lg:grid-cols-[.88fr_1.12fr] lg:gap-16">
-        <div class="home-hero">
-          <div class="hero-copy">
-            <div class="inline-flex items-center gap-2 rounded-full border border-ink/10 bg-white/70 px-3 py-2 text-xs font-extrabold backdrop-blur">
-              <span class="h-2 w-2 rounded-full bg-violet"></span>
-              Подготовка документов для ФНС
-            </div>
-
-            <h1 class="mt-7 max-w-4xl text-[clamp(3.35rem,6.2vw,6.8rem)] font-black leading-[.9] tracking-[-0.085em]">
-              Документы<br />
-              <span class="relative inline-block">
-                <span class="relative z-10">для ФНС</span>
-                <span class="absolute -bottom-[20%] left-[-3%] h-[12%] w-[106%] -rotate-2 rounded-full bg-lime"></span>
-              </span>
-              — готовы.
-            </h1>
-          <p class="mt-12 max-w-3xl text-xl font-medium leading-relaxed text-ink/60 sm:text-2xl">
-              Один сервис. PDF или TIFF — для ответа на <strong class="hero-emphasis">требование ФНС</strong>; TIFF — для <strong class="hero-emphasis">регистрации ООО и ИП</strong>.
-            </p>
-            <a href="/editor-dlya-fns" class="group mt-8 inline-flex items-center gap-3 rounded-full bg-ink px-6 py-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:shadow-card">
-              Открыть редактор
+    <!-- Первый экран: заголовок и макет кабинета -->
+    <section class="relative mx-auto max-w-[1440px] overflow-hidden px-5 pb-16 pt-8 sm:px-8 lg:overflow-visible lg:px-12 lg:pb-16 lg:pt-14">
+      <div class="pointer-events-none absolute -right-24 top-0 -z-10 h-[460px] w-[460px] rounded-full bg-lime/30 blur-[110px]"></div>
+      <div class="pointer-events-none absolute -left-40 top-64 -z-10 h-[360px] w-[360px] rounded-full bg-violet/10 blur-[100px]"></div>
+      <div class="grid items-center gap-14 lg:grid-cols-[1fr_1fr]">
+        <div>
+          <p class="inline-flex items-center gap-2 rounded-full border border-ink/10 bg-white/70 px-3 py-2 text-xs font-extrabold backdrop-blur"><span class="h-2 w-2 rounded-full bg-violet"></span> Для ИП и микробизнеса</p>
+          <h1 class="mt-6 text-[clamp(2.9rem,5.8vw,6rem)] font-black leading-[.9] tracking-[-0.085em]">
+            Документы<br />между вами,<br />
+            <span class="relative inline-block"><span class="relative z-10">банком</span><span class="absolute -bottom-[10%] left-[-3%] h-[22%] w-[106%] -rotate-2 rounded-full bg-lime"></span></span> и ФНС.
+          </h1>
+          <p class="mt-8 max-w-xl text-lg font-medium leading-relaxed text-ink/60 sm:text-xl">Готовим файлы по требованиям ФНС, храним постоянные документы бизнеса и собираем пакет под запрос банка или контрагента. Без учётной системы и настроек.</p>
+          <div class="mt-9 flex flex-wrap items-center gap-3">
+            <a href="/account" class="group inline-flex items-center gap-3 rounded-full bg-ink px-6 py-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:shadow-card">
+              Открыть кабинет
               <span class="action-chevron action-chevron--centered grid h-7 w-7 place-items-center rounded-full bg-lime text-ink transition-transform group-hover:translate-x-1">&gt;</span>
             </a>
+            <a href="/editor-dlya-fns" class="rounded-full border border-ink/15 bg-white/70 px-5 py-4 text-sm font-bold backdrop-blur transition hover:border-ink hover:bg-white">Подготовить файл без входа</a>
           </div>
+          <ul class="mt-9 flex flex-wrap gap-2 text-xs font-extrabold text-ink/60">
+            <li class="rounded-full border border-ink/10 bg-white/70 px-3 py-2">Шифрование AES-256</li>
+            <li class="rounded-full border border-ink/10 bg-white/70 px-3 py-2">Без установки</li>
+            <li class="rounded-full border border-ink/10 bg-white/70 px-3 py-2">Бесплатно</li>
+          </ul>
+        </div>
 
-          <div class="hero-stats mt-10 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div class="rounded-2xl border border-ink/10 bg-white/75 p-4 backdrop-blur">
-              <p class="text-2xl font-black tracking-[-0.05em]">300 DPI</p>
-              <p class="mt-1 text-xs font-semibold leading-relaxed text-ink/40">Разрешение для документов ФНС</p>
+        <!-- Макет кабинета: плашки сроков, пакет под запрос и ссылка. Только иллюстрация. -->
+        <div class="relative pb-16 sm:pb-10" aria-hidden="true">
+          <div class="rounded-[2rem] border border-ink/10 bg-white p-5 pb-24 shadow-soft sm:p-7 sm:pb-20">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <p class="text-[10px] font-extrabold uppercase tracking-[.16em] text-violet">Кабинет · ООО</p>
+                <p class="mt-1 text-lg font-extrabold tracking-[-0.04em]">ООО «Ромашка»</p>
+              </div>
+              <div class="w-32 sm:w-40">
+                <p class="text-[10px] font-extrabold text-ink/50">Базовых: 9 из 12</p>
+                <div class="mt-1.5 h-2 overflow-hidden rounded-full bg-ink/10"><div class="h-full w-3/4 rounded-full bg-lime"></div></div>
+              </div>
             </div>
-            <div class="rounded-2xl border border-ink/10 bg-white/75 p-4 backdrop-blur">
-              <p class="text-2xl font-black tracking-[-0.05em]">Чёрно-белый</p>
-              <p class="mt-1 text-xs font-semibold leading-relaxed text-ink/40">Без оттенков серого и цвета</p>
-            </div>
-            <div class="rounded-2xl border border-ink/10 bg-white/75 p-4 backdrop-blur">
-              <p class="text-2xl font-black tracking-[-0.05em]">1 бит · Group 4</p>
-              <p class="mt-1 text-xs font-semibold leading-relaxed text-ink/40">Компактное сжатие ч/б страниц</p>
-            </div>
-            <div class="rounded-2xl border border-ink/10 bg-white/75 p-4 backdrop-blur">
-              <p class="text-2xl font-black tracking-[-0.05em]">Многостраничный</p>
-              <p class="mt-1 text-xs font-semibold leading-relaxed text-ink/40">Все страницы в одном PDF или TIFF</p>
+            <ul class="mt-5 space-y-2">
+              <li class="flex items-center justify-between gap-3 rounded-2xl bg-paper px-4 py-3">
+                <div class="min-w-0"><p class="truncate text-sm font-extrabold">Устав</p><p class="text-[11px] font-semibold text-ink/45">Устав ООО Ромашка.pdf · 1,2 МБ</p></div>
+                <span class="chip shrink-0 bg-paper text-ink/60">загружен</span>
+              </li>
+              <li class="flex items-center justify-between gap-3 rounded-2xl bg-paper px-4 py-3">
+                <div class="min-w-0"><p class="truncate text-sm font-extrabold">Выписка из ЕГРЮЛ</p><p class="text-[11px] font-semibold text-ink/45">egrul.pdf · 210 КБ</p></div>
+                <span class="chip shrink-0 bg-lime/60 text-ink">свежая ещё 12 дней</span>
+              </li>
+              <li class="flex items-center justify-between gap-3 rounded-2xl bg-paper px-4 py-3">
+                <div class="min-w-0"><p class="truncate text-sm font-extrabold">Сертификат подписи</p><p class="text-[11px] font-semibold text-ink/45">director.cer · 2 КБ</p></div>
+                <span class="chip shrink-0 bg-[#FFDFA8] text-ink">7 дней</span>
+              </li>
+              <li class="flex items-center justify-between gap-3 rounded-2xl bg-paper px-4 py-3">
+                <div class="min-w-0"><p class="truncate text-sm font-extrabold">Доверенность бухгалтера</p><p class="text-[11px] font-semibold text-ink/45">mchd.xml · 8 КБ</p></div>
+                <span class="chip shrink-0 bg-red-50 text-red-700">срок вышел</span>
+              </li>
+            </ul>
+          </div>
+          <div class="absolute bottom-2 left-4 right-10 rounded-[1.6rem] bg-ink p-5 text-white shadow-soft sm:left-auto sm:right-[-12px] sm:w-[330px]">
+            <p class="text-[10px] font-extrabold uppercase tracking-[.16em] text-white/50">Пакет под запрос</p>
+            <p class="mt-1 text-base font-extrabold tracking-[-0.03em]">Открытие счёта в банке</p>
+            <div class="mt-3 flex items-center justify-between gap-3">
+              <p class="text-xs font-semibold text-white/60">6 файлов и опись · 4,8 МБ</p>
+              <span class="rounded-full bg-lime px-3 py-1.5 text-[11px] font-extrabold text-ink">ZIP</span>
             </div>
           </div>
+          <div class="absolute -top-4 right-6 rotate-[5deg] rounded-xl bg-violet px-3 py-2 text-[10px] font-extrabold uppercase tracking-[.12em] text-white shadow-card">Ссылка на 7 дней</div>
         </div>
       </div>
     </section>
 
-    <section class="overflow-hidden border-y border-ink/10 bg-ink py-4 text-white">
-      <div class="marquee flex w-max items-center">
-        <div class="flex items-center gap-8 pr-8 text-sm font-extrabold uppercase tracking-[.14em]">
-          <span>Два профиля ФНС</span><span class="text-lime">✦</span><span>PDF или TIFF</span><span class="text-lime">✦</span><span>Автовыбор параметров</span><span class="text-lime">✦</span><span>Один документ — один файл</span><span class="text-lime">✦</span>
+    <!-- Схема: вы — ФНСКит — ФНС, банк, контрагент -->
+    <section id="flow" class="mx-auto max-w-[1440px] scroll-mt-8 px-5 pb-20 pt-10 sm:px-8 lg:px-12 lg:pb-28 lg:pt-16">
+      <div class="grid items-center gap-12 lg:grid-cols-[.8fr_1.2fr]">
+        <div>
+          <p class="text-xs font-extrabold uppercase tracking-[.18em] text-violet">Документооборот без учётной системы</p>
+          <h2 class="mt-5 text-4xl font-extrabold leading-[1.02] tracking-[-0.06em] sm:text-5xl">Между вами, банком и ФНС — один сервис.</h2>
+          <p class="mt-5 max-w-md text-base font-medium leading-relaxed text-ink/55">Подготовить файл по требованиям, проверить его, сохранить в кабинете и передать тому, кто просит: налоговой, банку или контрагенту. Без бухгалтерской программы и разбора технических терминов.</p>
+          <a href="/account" class="mt-7 inline-flex items-center gap-2 text-sm font-extrabold text-violet">Открыть кабинет <span class="action-chevron">&gt;</span></a>
         </div>
-        <div class="flex items-center gap-8 pr-8 text-sm font-extrabold uppercase tracking-[.14em]" aria-hidden="true">
-          <span>Два профиля ФНС</span><span class="text-lime">✦</span><span>PDF или TIFF</span><span class="text-lime">✦</span><span>Автовыбор параметров</span><span class="text-lime">✦</span><span>Один документ — один файл</span><span class="text-lime">✦</span>
-        </div>
-        <div class="flex items-center gap-8 pr-8 text-sm font-extrabold uppercase tracking-[.14em]" aria-hidden="true">
-          <span>Два профиля ФНС</span><span class="text-lime">✦</span><span>PDF или TIFF</span><span class="text-lime">✦</span><span>Автовыбор параметров</span><span class="text-lime">✦</span><span>Один документ — один файл</span><span class="text-lime">✦</span>
-        </div>
-        <div class="flex items-center gap-8 pr-8 text-sm font-extrabold uppercase tracking-[.14em]" aria-hidden="true">
-          <span>Два профиля ФНС</span><span class="text-lime">✦</span><span>PDF или TIFF</span><span class="text-lime">✦</span><span>Автовыбор параметров</span><span class="text-lime">✦</span><span>Один документ — один файл</span><span class="text-lime">✦</span>
-        </div>
+
+        <figure class="relative overflow-hidden rounded-[2rem] border border-ink/10 bg-white/80 p-5 shadow-soft backdrop-blur sm:p-9">
+          <figcaption class="sr-only">Схема: вы готовите и храните документы в ФНСКит, а затем передаёте их в ФНС, банку или контрагенту.</figcaption>
+          <div class="mx-auto w-fit rounded-2xl border border-ink/10 bg-paper px-6 py-3 text-center">
+            <p class="text-[10px] font-extrabold uppercase tracking-[.16em] text-ink/40">Вы</p>
+            <p class="mt-1 text-sm font-extrabold">ИП или ООО</p>
+          </div>
+          <div class="mx-auto h-8 w-0 border-l-2 border-dashed border-ink/20"></div>
+          <div class="relative overflow-hidden rounded-[1.6rem] bg-ink p-5 text-white sm:p-7">
+            <div class="pointer-events-none absolute -bottom-16 -right-10 h-40 w-40 rounded-full border-[30px] border-lime/20"></div>
+            <div class="relative flex items-center gap-3">
+              <img src="./images/logo.svg" alt="" class="h-9 w-9" />
+              <p class="text-lg font-black tracking-[-0.06em]">ФНСКит</p>
+            </div>
+            <ul class="relative mt-4 flex flex-wrap gap-2 text-[11px] font-extrabold">
+              <li class="rounded-full bg-white/10 px-3 py-1.5">Редактор PDF и TIFF</li>
+              <li class="rounded-full bg-white/10 px-3 py-1.5">Проверка файла</li>
+              <li class="rounded-full bg-lime px-3 py-1.5 text-ink">Кабинет документов</li>
+            </ul>
+          </div>
+          <div class="mx-auto h-6 w-0 border-l-2 border-dashed border-ink/20"></div>
+          <div class="mx-[16.6%] hidden h-0 border-t-2 border-dashed border-ink/20 sm:block"></div>
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
+            <div class="flex flex-col items-center">
+              <div class="hidden h-5 w-0 border-l-2 border-dashed border-ink/20 sm:block"></div>
+              <div class="w-full flex-1 rounded-2xl bg-[#DDD9FF] p-3 sm:p-4">
+                <p class="text-sm font-extrabold">ФНС</p>
+                <ul class="mt-1.5 space-y-1 text-[11px] font-semibold leading-snug text-ink/60">
+                  <li>Ответ на требование</li>
+                  <li>Регистрация ООО и ИП</li>
+                </ul>
+              </div>
+            </div>
+            <div class="flex flex-col items-center">
+              <div class="hidden h-5 w-0 border-l-2 border-dashed border-ink/20 sm:block"></div>
+              <div class="w-full flex-1 rounded-2xl bg-lime p-3 sm:p-4">
+                <p class="text-sm font-extrabold">Банк</p>
+                <ul class="mt-1.5 space-y-1 text-[11px] font-semibold leading-snug text-ink/60">
+                  <li>Пакет на открытие счёта</li>
+                  <li>Свежая выписка</li>
+                </ul>
+              </div>
+            </div>
+            <div class="flex flex-col items-center">
+              <div class="hidden h-5 w-0 border-l-2 border-dashed border-ink/20 sm:block"></div>
+              <div class="w-full flex-1 rounded-2xl border border-ink/10 bg-paper p-3 sm:p-4">
+                <p class="text-sm font-extrabold">Контрагент</p>
+                <ul class="mt-1.5 space-y-1 text-[11px] font-semibold leading-snug text-ink/55">
+                  <li>Ссылка со сроком</li>
+                  <li>Лимит скачиваний</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </figure>
       </div>
     </section>
 
-    <section id="directions" class="mx-auto max-w-[1440px] scroll-mt-8 px-5 py-24 sm:px-8 lg:px-12 lg:py-32">
+    <!-- Что внутри: шесть возможностей -->
+    <section id="features" class="mx-auto max-w-[1440px] scroll-mt-8 px-5 pb-20 sm:px-8 lg:px-12 lg:pb-28">
+      <div class="grid items-end gap-6 lg:grid-cols-2">
+        <div>
+          <p class="text-xs font-extrabold uppercase tracking-[.18em] text-violet">Один сервис вместо папки на рабочем столе</p>
+          <h2 class="mt-5 max-w-2xl text-4xl font-extrabold leading-[1.02] tracking-[-0.06em] sm:text-5xl">От скана до отправки — в одном месте.</h2>
+        </div>
+        <p class="max-w-xl text-base font-medium leading-relaxed text-ink/55 lg:justify-self-end">Подготовить файл по требованиям, проверить его, сохранить, собрать под запрос и не пропустить срок — без бухгалтерской программы и разбора технических терминов.</p>
+      </div>
+      <div class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <a href="/editor-dlya-fns" class="group relative flex min-h-[250px] flex-col overflow-hidden rounded-[2rem] bg-lime p-7 transition hover:-translate-y-1 hover:shadow-soft">
+          <div class="flex items-center justify-between"><span class="text-xs font-extrabold text-ink/40">01</span><span class="action-chevron transition-transform group-hover:translate-x-1">&gt;</span></div>
+          <h3 class="mt-auto pt-8 text-2xl font-extrabold tracking-[-0.05em]">Подготовка файлов</h3>
+          <p class="mt-2 text-sm font-semibold leading-relaxed text-ink/60">PDF и многостраничный TIFF с параметрами ФНС: 300 DPI, нужный цвет и сжатие.</p>
+          <ul class="mt-4 flex flex-wrap gap-1.5 text-[10px] font-extrabold">
+            <li class="rounded-full bg-white/60 px-2.5 py-1">Требования и НДС</li>
+            <li class="rounded-full bg-white/60 px-2.5 py-1">Регистрация</li>
+            <li class="rounded-full bg-white/60 px-2.5 py-1">Свой профиль</li>
+          </ul>
+        </a>
+        <a href="/check" class="group relative flex min-h-[250px] flex-col overflow-hidden rounded-[2rem] bg-[#DDD9FF] p-7 transition hover:-translate-y-1 hover:shadow-soft">
+          <div class="flex items-center justify-between"><span class="text-xs font-extrabold text-ink/40">02</span><span class="action-chevron transition-transform group-hover:translate-x-1">&gt;</span></div>
+          <h3 class="mt-auto pt-8 text-2xl font-extrabold tracking-[-0.05em]">Проверка готового файла</h3>
+          <p class="mt-2 text-sm font-semibold leading-relaxed text-ink/60">Разрешение, цвет, сжатие и размер против требований — до отправки, а не после отказа.</p>
+          <ul class="mt-4 flex flex-wrap gap-1.5 text-[10px] font-extrabold">
+            <li class="rounded-full bg-white/60 px-2.5 py-1">DPI</li>
+            <li class="rounded-full bg-white/60 px-2.5 py-1">Цвет</li>
+            <li class="rounded-full bg-white/60 px-2.5 py-1">Сжатие</li>
+            <li class="rounded-full bg-white/60 px-2.5 py-1">Размер</li>
+          </ul>
+        </a>
+        <a href="/account" class="group relative flex min-h-[250px] flex-col overflow-hidden rounded-[2rem] bg-ink p-7 text-white transition hover:-translate-y-1 hover:shadow-soft">
+          <div class="flex items-center justify-between"><span class="text-xs font-extrabold text-lime">03</span><span class="action-chevron text-lime transition-transform group-hover:translate-x-1">&gt;</span></div>
+          <h3 class="mt-auto pt-8 text-2xl font-extrabold tracking-[-0.05em]">Постоянные документы</h3>
+          <p class="mt-2 text-sm font-semibold leading-relaxed text-white/60">Устав, выписки, доверенности и сертификат подписи — в кабинете, в зашифрованном виде.</p>
+          <ul class="mt-4 flex flex-wrap gap-1.5 text-[10px] font-extrabold">
+            <li class="rounded-full bg-white/10 px-2.5 py-1">Устав</li>
+            <li class="rounded-full bg-white/10 px-2.5 py-1">Выписка ЕГРЮЛ</li>
+            <li class="rounded-full bg-white/10 px-2.5 py-1">Доверенности</li>
+          </ul>
+        </a>
+        <a href="/account#packages" class="group relative flex min-h-[250px] flex-col overflow-hidden rounded-[2rem] border border-ink/10 bg-white/85 p-7 transition hover:-translate-y-1 hover:shadow-soft">
+          <div class="flex items-center justify-between"><span class="text-xs font-extrabold text-ink/40">04</span><span class="action-chevron transition-transform group-hover:translate-x-1">&gt;</span></div>
+          <h3 class="mt-auto pt-8 text-2xl font-extrabold tracking-[-0.05em]">Пакет под запрос</h3>
+          <p class="mt-2 text-sm font-semibold leading-relaxed text-ink/60">Банк просит документы — отметьте нужные и скачайте один ZIP с описью.</p>
+          <ul class="mt-4 flex flex-wrap gap-1.5 text-[10px] font-extrabold">
+            <li class="rounded-full bg-paper px-2.5 py-1">Открытие счёта</li>
+            <li class="rounded-full bg-paper px-2.5 py-1">Контрагент</li>
+            <li class="rounded-full bg-paper px-2.5 py-1">Полномочия</li>
+          </ul>
+        </a>
+        <a href="/account" class="group relative flex min-h-[250px] flex-col overflow-hidden rounded-[2rem] border border-ink/10 bg-white/85 p-7 transition hover:-translate-y-1 hover:shadow-soft">
+          <div class="flex items-center justify-between"><span class="text-xs font-extrabold text-ink/40">05</span><span class="action-chevron transition-transform group-hover:translate-x-1">&gt;</span></div>
+          <h3 class="mt-auto pt-8 text-2xl font-extrabold tracking-[-0.05em]">Отправка ссылкой</h3>
+          <p class="mt-2 text-sm font-semibold leading-relaxed text-ink/60">Срок до 30 дней и лимит скачиваний. Отозвать ссылку можно в любой момент.</p>
+          <ul class="mt-4 flex flex-wrap gap-1.5 text-[10px] font-extrabold">
+            <li class="rounded-full bg-paper px-2.5 py-1">до 30 дней</li>
+            <li class="rounded-full bg-paper px-2.5 py-1">лимит скачиваний</li>
+            <li class="rounded-full bg-paper px-2.5 py-1">отзыв</li>
+          </ul>
+        </a>
+        <a href="/account" class="group relative flex min-h-[250px] flex-col overflow-hidden rounded-[2rem] border border-ink/10 bg-white/85 p-7 transition hover:-translate-y-1 hover:shadow-soft">
+          <div class="flex items-center justify-between"><span class="text-xs font-extrabold text-ink/40">06</span><span class="action-chevron transition-transform group-hover:translate-x-1">&gt;</span></div>
+          <h3 class="mt-auto pt-8 text-2xl font-extrabold tracking-[-0.05em]">Напоминания о сроках</h3>
+          <p class="mt-2 text-sm font-semibold leading-relaxed text-ink/60">Подпись, доверенность, свежесть выписки — напомним письмом заранее.</p>
+          <ul class="mt-4 flex flex-wrap gap-1.5 text-[10px] font-extrabold">
+            <li class="rounded-full bg-paper px-2.5 py-1">за 30 дней</li>
+            <li class="rounded-full bg-paper px-2.5 py-1">за 7 дней</li>
+            <li class="rounded-full bg-lime px-2.5 py-1">за 1 день</li>
+          </ul>
+        </a>
+      </div>
+    </section>
+
+    <!-- Подготовка файлов: два готовых профиля -->
+    <section id="directions" class="mx-auto max-w-[1440px] scroll-mt-8 px-5 pb-20 sm:px-8 lg:px-12 lg:pb-28">
       <div class="grid items-end gap-8 lg:grid-cols-2">
         <div>
-          <p class="text-xs font-extrabold uppercase tracking-[.18em] text-violet">Не просто «сохранить как»</p>
-          <h2 class="mt-5 max-w-2xl text-4xl font-extrabold leading-[1.02] tracking-[-0.06em] sm:text-6xl">У каждой задачи — свой профиль.</h2>
+          <p class="text-xs font-extrabold uppercase tracking-[.18em] text-violet">Подготовка файлов · не просто «сохранить как»</p>
+          <h2 class="mt-5 max-w-2xl text-4xl font-extrabold leading-[1.02] tracking-[-0.06em] sm:text-5xl">Файл, который примет ФНС.</h2>
         </div>
         <p class="max-w-xl text-base font-medium leading-relaxed text-ink/55 lg:justify-self-end">
           Главное различие — глубина цвета и алгоритм сжатия. Сервис не заставляет разбираться в настройках: достаточно правильно выбрать назначение документа.
@@ -327,62 +408,98 @@
         </article>
       </div>
 
+      <a href="/editor-custom" class="group mt-5 flex flex-col gap-3 rounded-2xl border border-ink/10 bg-white/70 p-5 transition hover:border-ink/30 hover:bg-white sm:flex-row sm:items-center sm:justify-between sm:p-6">
+        <span>
+          <span class="block text-sm font-extrabold">Банку или контрагенту нужны другие параметры?</span>
+          <span class="mt-1 block text-xs font-semibold leading-relaxed text-ink/50">Свой профиль: DPI, цвет, сжатие и формат — PDF, PDF/A, TIFF или ZIP.</span>
+        </span>
+        <span class="inline-flex shrink-0 items-center gap-2 text-sm font-extrabold text-violet">Настроить профиль <span class="action-chevron transition-transform group-hover:translate-x-1">&gt;</span></span>
+      </a>
+
       <div class="mt-5 flex flex-col gap-3 rounded-2xl border border-ink/10 bg-white/70 p-5 text-xs font-semibold leading-relaxed text-ink/45 sm:flex-row sm:items-center sm:justify-between">
         <p>ФНСКит не является официальным сервисом ФНС. Параметры основаны на опубликованных требованиях ведомства.</p>
         <a class="shrink-0 font-extrabold text-ink underline decoration-ink/20 underline-offset-4" href="https://www.nalog.gov.ru/" target="_blank" rel="noreferrer">Перейти на nalog.gov.ru <span class="action-chevron">&gt;</span></a>
       </div>
     </section>
 
+    <!-- Как это работает -->
     <section id="how" class="bg-white/60">
-      <div class="mx-auto max-w-[1440px] px-5 py-24 sm:px-8 lg:px-12 lg:py-32">
+      <div class="mx-auto max-w-[1440px] px-5 py-20 sm:px-8 lg:px-12 lg:py-28">
         <div class="grid gap-12 lg:grid-cols-[.7fr_1.3fr]">
           <div>
-            <p class="mb-5 text-xs font-extrabold uppercase tracking-[.18em] text-violet">Три простых шага</p>
-            <h2 class="max-w-sm text-4xl font-extrabold leading-[1.02] tracking-[-0.06em] sm:text-5xl">Параметры — на нас.</h2>
-            <p class="mt-5 max-w-sm text-sm font-medium leading-relaxed text-ink/45">Вам не понадобится отдельный редактор или знание технических терминов.</p>
+            <p class="mb-5 text-xs font-extrabold uppercase tracking-[.18em] text-violet">Как это работает</p>
+            <h2 class="max-w-sm text-4xl font-extrabold leading-[1.02] tracking-[-0.06em] sm:text-5xl">Один раз загрузили — дальше быстрее.</h2>
           </div>
-
           <div class="grid gap-px overflow-hidden rounded-[2rem] border border-ink/10 bg-ink/10 md:grid-cols-3">
             <article class="group bg-paper p-7 transition hover:bg-lime sm:p-8">
               <div class="mb-14 text-sm font-extrabold text-ink/30">01</div>
-              <h3 class="text-xl font-extrabold tracking-[-0.04em]">Выберите задачу</h3>
-              <p class="mt-3 text-sm font-medium leading-relaxed text-ink/50">Требование ФНС и НДС или государственная регистрация ООО и ИП.</p>
+              <h3 class="text-xl font-extrabold tracking-[-0.04em]">Загрузите документы</h3>
+              <p class="mt-3 text-sm font-medium leading-relaxed text-ink/50">Кабинет подскажет набор для ИП или ООО и где взять каждый документ.</p>
             </article>
             <article class="group bg-paper p-7 transition hover:bg-lime sm:p-8">
               <div class="mb-14 text-sm font-extrabold text-ink/30">02</div>
-              <h3 class="text-xl font-extrabold tracking-[-0.04em]">Загрузите страницы</h3>
-              <p class="mt-3 text-sm font-medium leading-relaxed text-ink/50">Добавьте PDF, сканы или фотографии в нужном порядке.</p>
+              <h3 class="text-xl font-extrabold tracking-[-0.04em]">Соберите под запрос</h3>
+              <p class="mt-3 text-sm font-medium leading-relaxed text-ink/50">Банк, контрагент или ФНС: отметьте нужное — архив и опись готовы.</p>
             </article>
             <article class="group bg-paper p-7 transition hover:bg-lime sm:p-8">
               <div class="mb-14 text-sm font-extrabold text-ink/30">03</div>
-              <h3 class="text-xl font-extrabold tracking-[-0.04em]">Скачайте файл</h3>
-              <p class="mt-3 text-sm font-medium leading-relaxed text-ink/50">Получите один многостраничный файл с проверенными параметрами.</p>
+              <h3 class="text-xl font-extrabold tracking-[-0.04em]">Отправьте ссылкой</h3>
+              <p class="mt-3 text-sm font-medium leading-relaxed text-ink/50">Ссылкой или архивом, а о сроках документов напомним сами.</p>
             </article>
           </div>
         </div>
       </div>
     </section>
 
-    <section id="security" class="mx-auto max-w-[1440px] px-5 pb-20 pt-14 sm:px-8 sm:pt-16 lg:px-12 lg:pb-28 lg:pt-20">
+    <!-- Для кого -->
+    <section id="who" class="mx-auto max-w-[1440px] scroll-mt-8 px-5 py-20 sm:px-8 lg:px-12 lg:py-28">
+      <div class="grid gap-10 lg:grid-cols-[.7fr_1.3fr]">
+        <div>
+          <p class="text-xs font-extrabold uppercase tracking-[.18em] text-violet">Для кого</p>
+          <h2 class="mt-5 max-w-sm text-4xl font-extrabold leading-[1.02] tracking-[-0.06em] sm:text-5xl">Когда учётная система — это слишком.</h2>
+        </div>
+        <div class="grid gap-4 sm:grid-cols-3">
+          <article class="rounded-2xl border border-ink/10 bg-white/85 p-6 shadow-[0_8px_24px_rgba(23,24,21,.04)] transition hover:-translate-y-0.5 hover:shadow-card">
+            <span class="grid h-9 w-9 place-items-center rounded-full bg-lime font-black">1</span>
+            <h3 class="mt-5 text-lg font-extrabold tracking-[-0.04em]">ИП на УСН или патенте</h3>
+            <p class="mt-2 text-sm font-medium leading-relaxed text-ink/55">Выписки, налоговый режим и подпись — без бухгалтерской программы.</p>
+          </article>
+          <article class="rounded-2xl border border-ink/10 bg-white/85 p-6 shadow-[0_8px_24px_rgba(23,24,21,.04)] transition hover:-translate-y-0.5 hover:shadow-card">
+            <span class="grid h-9 w-9 place-items-center rounded-full bg-violet font-black text-white">2</span>
+            <h3 class="mt-5 text-lg font-extrabold tracking-[-0.04em]">ООО-микропредприятие</h3>
+            <p class="mt-2 text-sm font-medium leading-relaxed text-ink/55">Устав, решения участников и полномочия директора — для банка и контрагентов.</p>
+          </article>
+          <article class="rounded-2xl border border-ink/10 bg-white/85 p-6 shadow-[0_8px_24px_rgba(23,24,21,.04)] transition hover:-translate-y-0.5 hover:shadow-card">
+            <span class="grid h-9 w-9 place-items-center rounded-full bg-ink font-black text-lime">3</span>
+            <h3 class="mt-5 text-lg font-extrabold tracking-[-0.04em]">Бухгалтер на аутсорсе</h3>
+            <p class="mt-2 text-sm font-medium leading-relaxed text-ink/55">Ответ на требование в нужном формате и проверка файла перед отправкой.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Защита данных -->
+    <section id="security" class="mx-auto max-w-[1440px] px-5 pb-20 sm:px-8 lg:px-12 lg:pb-28">
       <div class="grid gap-3 md:grid-cols-3 md:gap-4">
         <article class="rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-[0_8px_24px_rgba(23,24,21,.04)] transition hover:-translate-y-0.5 hover:shadow-card sm:p-6">
+          <span class="grid h-9 w-9 place-items-center rounded-xl bg-ink text-sm font-extrabold text-lime">#</span>
+          <h3 class="mt-4 text-base font-extrabold tracking-[-0.03em]">Шифрование</h3>
+          <p class="mt-1.5 text-sm font-medium leading-relaxed text-ink/50">Файлы кабинета хранятся зашифрованными (AES-256), а подписанные PDF — без изменений: подпись ФНС сохраняется.</p>
+        </article>
+        <article class="rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-[0_8px_24px_rgba(23,24,21,.04)] transition hover:-translate-y-0.5 hover:shadow-card sm:p-6">
           <span class="grid h-9 w-9 place-items-center rounded-xl bg-lime text-sm font-extrabold">×</span>
-          <h3 class="mt-4 text-base font-extrabold tracking-[-0.03em]">Автоудаление</h3>
-          <p class="mt-1.5 text-sm font-medium leading-relaxed text-ink/50">Файлы удаляются автоматически после обработки.</p>
+          <h3 class="mt-4 text-base font-extrabold tracking-[-0.03em]">Удаление</h3>
+          <p class="mt-1.5 text-sm font-medium leading-relaxed text-ink/50">Файлы редактора удаляются сразу после обработки, а удалённый аккаунт уносит с собой все файлы кабинета.</p>
         </article>
         <article class="rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-[0_8px_24px_rgba(23,24,21,.04)] transition hover:-translate-y-0.5 hover:shadow-card sm:p-6">
-          <span class="grid h-9 w-9 place-items-center rounded-xl bg-violet text-sm font-extrabold text-white">✓</span>
-          <h3 class="mt-4 text-base font-extrabold tracking-[-0.03em]">Проверка профиля</h3>
-          <p class="mt-1.5 text-sm font-medium leading-relaxed text-ink/50">Проверяем DPI, цвет, сжатие и число страниц.</p>
-        </article>
-        <article class="rounded-2xl border border-ink/10 bg-white/85 p-5 shadow-[0_8px_24px_rgba(23,24,21,.04)] transition hover:-translate-y-0.5 hover:shadow-card sm:p-6">
-          <span class="action-chevron action-chevron--centered grid h-9 w-9 place-items-center rounded-xl bg-ink text-lime">&gt;</span>
-          <h3 class="mt-4 text-base font-extrabold tracking-[-0.03em]">Без регистрации</h3>
-          <p class="mt-1.5 text-sm font-medium leading-relaxed text-ink/50">Выберите профиль, добавьте файлы и скачайте результат.</p>
+          <span class="grid h-9 w-9 place-items-center rounded-xl bg-violet text-sm font-extrabold text-white">2</span>
+          <h3 class="mt-4 text-base font-extrabold tracking-[-0.03em]">Вход с кодом</h3>
+          <p class="mt-1.5 text-sm font-medium leading-relaxed text-ink/50">Можно включить двухфакторную защиту: при входе после пароля спросим код из приложения.</p>
         </article>
       </div>
     </section>
 
+    <!-- Инструкции -->
     <section id="guides" class="mx-auto max-w-[1440px] px-5 pb-20 sm:px-8 lg:px-12 lg:pb-28">
       <div class="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
@@ -430,15 +547,22 @@
       </div>
     </section>
 
+    <!-- Призыв -->
     <section class="mx-auto max-w-[1440px] px-5 pb-8 sm:px-8 lg:px-12">
-      <div class="relative overflow-hidden rounded-[2rem] bg-[#DDD9FF] px-6 py-16 text-center sm:px-12 sm:py-24">
-        <div class="absolute -left-16 -top-16 h-52 w-52 rounded-full border-[36px] border-ink/10"></div>
-        <div class="absolute -bottom-20 -right-10 h-64 w-64 rounded-full border-[45px] border-violet/35"></div>
-        <p class="relative text-xs font-extrabold uppercase tracking-[.18em]">Начать с правильного выбора</p>
-        <h2 class="relative mx-auto mt-5 max-w-4xl text-4xl font-extrabold leading-[.98] tracking-[-0.065em] sm:text-6xl">Куда отправляете документ?</h2>
-        <div class="relative mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-          <a href="/editor-dlya-fns" class="inline-flex items-center gap-3 rounded-full bg-ink px-7 py-4 text-sm font-bold text-white transition hover:-translate-y-1 hover:shadow-soft">НДС и требования <span class="action-chevron text-lime">&gt;</span></a>
-          <a href="/editor-dlya-registracii" class="inline-flex items-center gap-3 rounded-full border border-ink/15 bg-white/70 px-7 py-4 text-sm font-bold transition hover:-translate-y-1 hover:bg-white hover:shadow-card">Регистрация ООО / ИП <span class="action-chevron text-violet">&gt;</span></a>
+      <div class="relative overflow-hidden rounded-[2rem] bg-[#DDD9FF] p-8 sm:p-12">
+        <div class="pointer-events-none absolute -bottom-24 -right-16 h-64 w-64 rounded-full border-[44px] border-violet/25"></div>
+        <div class="relative grid gap-10 lg:grid-cols-2 lg:items-end">
+          <div>
+            <h2 class="text-4xl font-extrabold leading-[1.02] tracking-[-0.06em] sm:text-5xl">Начните с одного документа.</h2>
+            <p class="mt-4 max-w-lg text-base font-medium leading-relaxed text-ink/60">Подготовьте файл без входа или заведите кабинет и сложите в него постоянные документы бизнеса. ФНСКит не является официальным сервисом ФНС и не заменяет консультацию бухгалтера или юриста.</p>
+          </div>
+          <div class="flex flex-wrap gap-3 lg:justify-end">
+            <a href="/account" class="group inline-flex items-center gap-3 rounded-full bg-ink px-6 py-4 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:shadow-card">
+              Создать кабинет
+              <span class="action-chevron action-chevron--centered grid h-7 w-7 place-items-center rounded-full bg-lime text-ink transition-transform group-hover:translate-x-1">&gt;</span>
+            </a>
+            <a href="/editor-dlya-fns" class="rounded-full border border-ink/15 bg-white/70 px-5 py-4 text-sm font-bold transition hover:-translate-y-0.5 hover:border-ink hover:bg-white hover:shadow-card">Подготовить файл</a>
+          </div>
         </div>
       </div>
     </section>
@@ -453,6 +577,7 @@
     <div class="flex flex-wrap gap-x-5 gap-y-2 font-semibold">
       <a class="hover:opacity-50" href="/privacy">Политика ПДн</a>
       <a class="hover:opacity-50" href="/consent">Согласие</a>
+      <a class="hover:opacity-50" href="/account">Кабинет</a>
       <a class="hover:opacity-50" href="#guides">Инструкции</a>
       <a class="hover:opacity-50" href="/kak-otvetit-na-trebovanie-fns">Ответ ФНС</a>
       <a class="hover:opacity-50" href="/kak-zaregistrirovat-ooo-onlayn">Открыть ООО</a>
