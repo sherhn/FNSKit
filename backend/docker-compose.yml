@@ -4,7 +4,7 @@ name: fnskit
 #
 #   сервис      cpus  mem_limit  mem_reservation
 #   db          0.5   160m       96m
-#   keycloak    1-2   576m       384m
+#   keycloak    1-2   704m       384m
 #   cabinet     0.5   256m       96m
 #   s3          0.5   256m       64m
 #   processor   1-2   320m       96m
@@ -171,7 +171,8 @@ services:
       # Куча задана числами, а не долей от лимита контейнера: так потолок
       # JVM не зависит от mem_limit. Кроме кучи у JVM есть метаспейс (около
       # 120 МБ у Keycloak), кеш кода и буферы, поэтому при -Xmx256m процесс
-      # занимает 400-480 МБ, и лимит контейнера выше кучи почти вдвое.
+      # занимает 440-480 МБ (замерено после старта и сквозного теста), а лимит
+      # 704 МБ оставляет запас на рост кучи под нагрузкой.
       # Если в логе появится OutOfMemoryError: Java heap space — поднимайте
       # -Xmx вместе с mem_limit, а не только его.
       JAVA_OPTS_KC_HEAP: -Xms64m -Xmx256m
@@ -195,7 +196,7 @@ services:
       - backend
       - default
     cpus: 2
-    mem_limit: 576m
+    mem_limit: 704m
     mem_reservation: 384m
     pids_limit: 512
     logging: *logging

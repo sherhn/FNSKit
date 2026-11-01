@@ -194,7 +194,7 @@ services:
       - backend
       - default
     cpus: 1
-    mem_limit: 576m
+    mem_limit: 704m
     mem_reservation: 384m
     pids_limit: 512
     logging: *logging
