@@ -450,16 +450,20 @@ def inspect_document(
     # 5. Размер файла
     max_mb_allowed = 60 if profile in (Profile.VAT, Profile.REGISTRATION) else (custom_target_mb or 60)
     size_mb = file_size / (1024 * 1024)
-    if size_mb <= 20:
+    if size_mb > max_mb_allowed:
+        size_status = CheckStatus.ERROR
+        size_details = f"Размер файла {file_size_formatted} превышает допустимый предел ({max_mb_allowed} МБ)."
+    elif profile is Profile.CUSTOM:
+        size_status = CheckStatus.SUCCESS
+        size_details = f"Размер файла укладывается в заданный предел ({max_mb_allowed} МБ)."
+    elif size_mb <= 20:
         size_status = CheckStatus.SUCCESS
         size_details = "Размер файла оптимален и гарантированно пройдёт через любые операторы ЭДО (до 20 МБ) и шлюз ФНС (до 60 МБ)."
-    elif size_mb <= max_mb_allowed:
+    else:
         size_status = CheckStatus.WARNING
         size_details = f"Размер ({file_size_formatted}) укладывается в шлюз приёма ФНС ({max_mb_allowed} МБ), но может превышать лимиты некоторых операторов ЭДО (20 МБ)."
-    else:
-        size_status = CheckStatus.ERROR
-        size_details = f"Размер файла {file_size_formatted} превышает допустимый предел ({max_mb_allowed} МБ). Инспекция отклонит пакет."
-    checks.append(CheckItem("file_size", "Размер файла", size_status, file_size_formatted, f"до 20 МБ (рекомендуется), до {max_mb_allowed} МБ (шлюз)", size_details))
+    size_expected = f"до {max_mb_allowed} МБ" if profile is Profile.CUSTOM else f"до 20 МБ (рекомендуется), до {max_mb_allowed} МБ (шлюз)"
+    checks.append(CheckItem("file_size", "Размер файла", size_status, file_size_formatted, size_expected, size_details))
 
     # 6. Многостраничность и листы
     page_count = len(raw_pages)

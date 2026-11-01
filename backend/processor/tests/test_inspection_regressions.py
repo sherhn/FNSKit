@@ -57,6 +57,16 @@ class InspectionRegressionTests(unittest.TestCase):
                 wrong = "lzw" if expected != "lzw" else "g4"
                 self.assertEqual(self.check("compression", custom_compression=wrong).status, CheckStatus.ERROR)
 
+    def test_custom_size_limit_is_checked_before_recommendation(self):
+        Image.new("L", (32, 32)).save(self.path, dpi=(300, 300))
+        for size, expected in ((5 * 1024**2 - 1, CheckStatus.SUCCESS),
+                               (5 * 1024**2, CheckStatus.SUCCESS),
+                               (5 * 1024**2 + 1, CheckStatus.ERROR)):
+            with self.subTest(size=size):
+                with self.path.open("r+b") as output:
+                    output.truncate(size)
+                self.assertEqual(self.check("file_size", custom_target_mb=5).status, expected)
+
     def test_custom_compression_checks_every_tiff_page(self):
         # TIFF допускает разное сжатие кадров; одного подходящего недостаточно.
         with self.path.open("w+b") as output:
