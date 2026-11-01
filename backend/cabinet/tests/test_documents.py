@@ -70,7 +70,9 @@ class DocsSyncTest(unittest.TestCase):
         docs = next((path for path in DOCS_CANDIDATES if path.exists()), None)
         if docs is None:
             self.skipTest("docs/DOCUMENTS.md недоступен")
-        described = set(re.findall(r"\(`([a-z0-9_]+)`\)", docs.read_text(encoding="utf-8")))
+        # Идентификаторы документов находятся в первом столбце таблиц.
+        # Упоминание базы (`cabinet`) в обычном тексте — не документ.
+        described = set(re.findall(r"^\|[^|\n]*\(`([a-z0-9_]+)`\)", docs.read_text(encoding="utf-8"), re.MULTILINE))
         catalog = {kind.id for kind in DOCUMENTS}
         self.assertEqual(catalog - described, set(), "нет в docs/DOCUMENTS.md")
         self.assertEqual(described - catalog, set(), "есть в docs, но нет в каталоге")
