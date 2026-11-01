@@ -90,7 +90,7 @@
 
   const presets = {
     fns: { format: "tiff", dpi: "300", color: "bw", compression: "g4", targetMb: "60" },
-    vat: { format: "pdf", dpi: "300", color: "gray", compression: "lzw", targetMb: "20" },
+    vat: { format: "pdf", dpi: "300", color: "gray", compression: "jpeg", targetMb: "20" },
     registration: { format: "tiff", dpi: "300", color: "bw", compression: "g4", targetMb: "60" },
     bank: { format: "pdf", dpi: "300", color: "color", compression: "jpeg", targetMb: "15" },
     court: { format: "pdfa", dpi: "300", color: "bw", compression: "jpeg", targetMb: "30" }

@@ -46,6 +46,44 @@ class InspectionRegressionTests(unittest.TestCase):
         self.assertEqual((report.pages[0].dpi_x, report.pages[0].dpi_y), (300, 300))
         self.assertAlmostEqual(report.pages[0].width_mm, 210, delta=1)
 
+    def test_custom_tiff_compression_must_match(self):
+        for actual, expected in (("tiff_lzw", "lzw"), ("tiff_adobe_deflate", "deflate"),
+                                 ("group4", "g4"), ("jpeg", "jpeg")):
+            with self.subTest(actual=actual):
+                Image.new("1" if expected == "g4" else "L", (32, 32)).save(
+                    self.path, compression=actual, dpi=(300, 300)
+                )
+                self.assertEqual(self.check("compression", custom_compression=expected).status, CheckStatus.SUCCESS)
+                wrong = "lzw" if expected != "lzw" else "g4"
+                self.assertEqual(self.check("compression", custom_compression=wrong).status, CheckStatus.ERROR)
+
+    def test_custom_compression_checks_every_tiff_page(self):
+        # TIFF допускает разное сжатие кадров; одного подходящего недостаточно.
+        with self.path.open("w+b") as output:
+            with TiffImagePlugin.AppendingTiffWriter(output) as writer:
+                for compression in ("tiff_lzw", "tiff_adobe_deflate"):
+                    Image.new("L", (32, 32)).save(writer, format="TIFF", compression=compression)
+                    writer.newFrame()
+        self.assertEqual(self.check("compression", custom_compression="lzw").status, CheckStatus.ERROR)
+        self.assertEqual(self.check("compression").status, CheckStatus.SUCCESS)
+
+    def test_custom_pdf_compression_must_match(self):
+        self.path = self.path.with_suffix(".pdf")
+        with fitz.open() as document:
+            page = document.new_page(width=144, height=72)
+            for image_format in ("JPEG", "PNG"):
+                buffer = io.BytesIO()
+                Image.new("L", (300, 300)).save(buffer, format=image_format)
+                left = 0 if image_format == "JPEG" else 72
+                page.insert_image(
+                    fitz.Rect(left, 0, left + 72, 72), stream=buffer.getvalue()
+                )
+                document.save(self.path, deflate=True)
+                # Проверяем все изображения страницы, а не только крупнейшее.
+                expected = CheckStatus.SUCCESS if image_format == "JPEG" else CheckStatus.ERROR
+                self.assertEqual(self.check("compression", custom_compression="jpeg").status, expected)
+                self.assertEqual(self.check("compression", custom_compression="g4").status, CheckStatus.ERROR)
+
 
 class IsolatedInspectionRegressionTests(unittest.IsolatedAsyncioTestCase):
     async def test_large_report_does_not_block_worker_exit(self):

@@ -200,15 +200,17 @@ def _inspect_pdf(path: Path, max_pages: int) -> tuple[list[PageInspection], dict
                         color_name = cs or "Gray"
                         bits = bpc_val
 
-                    filt_name = str(img_filter).lower()
-                    if "dct" in filt_name:
-                        metadata["compression_names"].add("JPEG")
-                    elif "flate" in filt_name:
-                        metadata["compression_names"].add("Flate")
-                    elif "ccitt" in filt_name:
-                        metadata["compression_names"].add("CCITT Group 4")
-                    else:
-                        metadata["compression_names"].add(img_filter or "Flate")
+                    for image in imgs:
+                        img_filter = image[8]
+                        filt_name = str(img_filter).lower()
+                        if "dct" in filt_name:
+                            metadata["compression_names"].add("JPEG")
+                        elif "flate" in filt_name:
+                            metadata["compression_names"].add("Flate")
+                        elif "ccitt" in filt_name:
+                            metadata["compression_names"].add("CCITT Group 4")
+                        else:
+                            metadata["compression_names"].add(img_filter or "Flate")
                 else:
                     # Pure vector / digital PDF without embedded raster scans
                     calc_dpi_x, calc_dpi_y = 300, 300
@@ -420,10 +422,30 @@ def inspect_document(
             checks.append(CheckItem("compression", "Алгоритм сжатия TIFF", comp_status, comp_names, "Строго CCITT Group 4 (T.6)", comp_details))
 
         else:
-            checks.append(CheckItem("compression", "Алгоритм сжатия TIFF", CheckStatus.SUCCESS, comp_names, custom_compression or "Любое", "Параметры сжатия зафиксированы."))
+            expected_tags = {"lzw": {5}, "deflate": {8, 32946}, "g4": {4}, "jpeg": {6, 7}}
+            expected = (custom_compression or "any").lower()
+            matches = expected == "any" or bool(comp_tags) and comp_tags.issubset(expected_tags.get(expected, set()))
+            checks.append(CheckItem(
+                "compression", "Алгоритм сжатия TIFF",
+                CheckStatus.SUCCESS if matches else CheckStatus.ERROR,
+                comp_names, custom_compression or "Любое",
+                "Сжатие соответствует заданным параметрам." if matches
+                else f"Фактическое сжатие ({comp_names}) отличается от заданного ({expected}).",
+            ))
     else:
-        comp_names = ", ".join(metadata.get("compression_names", set())) or "Flate / Вектор"
-        checks.append(CheckItem("compression", "Сжатие потоков PDF", CheckStatus.SUCCESS, comp_names, "Flate, JPEG или CCITT", "Потоки данных PDF сжаты стандартными алгоритмами."))
+        actual_compressions = metadata.get("compression_names", set())
+        comp_names = ", ".join(actual_compressions) or "Flate / Вектор"
+        expected = (custom_compression or "any").lower()
+        expected_names = {"lzw": {"LZWDecode"}, "deflate": {"Flate"}, "g4": {"CCITT Group 4"}, "jpeg": {"JPEG"}}
+        matches = profile is not Profile.CUSTOM or expected == "any" or (
+            bool(actual_compressions) and actual_compressions.issubset(expected_names.get(expected, set()))
+        )
+        checks.append(CheckItem(
+            "compression", "Сжатие потоков PDF", CheckStatus.SUCCESS if matches else CheckStatus.ERROR,
+            comp_names, custom_compression if profile is Profile.CUSTOM and custom_compression else "Flate, JPEG или CCITT",
+            "Потоки данных PDF сжаты стандартными алгоритмами." if matches
+            else f"Фактическое сжатие ({comp_names}) отличается от заданного ({expected}).",
+        ))
 
     # 5. Размер файла
     max_mb_allowed = 60 if profile in (Profile.VAT, Profile.REGISTRATION) else (custom_target_mb or 60)
