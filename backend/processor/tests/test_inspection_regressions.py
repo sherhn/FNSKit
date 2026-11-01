@@ -26,6 +26,27 @@ def _crashed_worker(sender):
     os._exit(1)
 
 
+class InspectionRegressionTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.path = Path(temporary.name) / "document.tiff"
+
+    def check(self, name, **options):
+        report = inspect_document(self.path, self.path.name, Profile.CUSTOM, **options)
+        return next(check for check in report.checks if check.id == name)
+
+    def test_centimeter_resolution_is_converted_once(self):
+        tags = TiffImagePlugin.ImageFileDirectory_v2()
+        tags[282] = tags[283] = 300 / 2.54
+        tags[296] = 3
+        Image.new("L", (2480, 3508)).save(self.path, tiffinfo=tags, compression="tiff_lzw")
+        report = inspect_document(self.path, self.path.name, Profile.VAT)
+        self.assertTrue(report.valid)
+        self.assertEqual((report.pages[0].dpi_x, report.pages[0].dpi_y), (300, 300))
+        self.assertAlmostEqual(report.pages[0].width_mm, 210, delta=1)
+
+
 class IsolatedInspectionRegressionTests(unittest.IsolatedAsyncioTestCase):
     async def test_large_report_does_not_block_worker_exit(self):
         with tempfile.TemporaryDirectory() as temporary:

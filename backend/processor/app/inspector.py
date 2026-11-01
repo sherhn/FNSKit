@@ -92,11 +92,7 @@ def _inspect_tiff(path: Path, max_pages: int) -> tuple[list[PageInspection], dic
                     except (ValueError, TypeError):
                         pass
 
-                # If resolution was in cm (tag 296 == 3), convert to inch
-                unit = img.tag_v2.get(296, 2)
-                if unit == 3 and dpi_x > 0 and dpi_y > 0:
-                    dpi_x = int(round(dpi_x * 2.54))
-                    dpi_y = int(round(dpi_y * 2.54))
+                # Pillow уже переводит ResolutionUnit=3 (сантиметры) в DPI.
 
                 w_px, h_px = img.size
                 w_mm = round((w_px / dpi_x * 25.4), 1) if dpi_x > 0 else 0.0
