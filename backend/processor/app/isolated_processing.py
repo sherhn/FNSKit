@@ -3,6 +3,7 @@ import logging
 import multiprocessing
 import os
 import signal
+from contextlib import suppress
 from multiprocessing.connection import Connection
 from pathlib import Path
 from typing import Any
@@ -161,26 +162,23 @@ async def _run_isolated(target: Any, args: tuple[Any, ...], name: str, timeout_s
     receiver, sender = _context.Pipe(duplex=False)
     process = _context.Process(target=target, args=(sender, *args), name=name)
     process_started = False
+    receive_task = None
 
     try:
         process.start()
         process_started = True
         sender.close()
-        await asyncio.to_thread(process.join, timeout_seconds)
-
-        if process.is_alive():
-            _terminate_process_tree(process)
+        # Читаем одновременно с работой процесса: большой отчёт не помещается
+        # в Pipe, и sender.send() не завершится, пока родитель не начнёт чтение.
+        receive_task = asyncio.create_task(asyncio.to_thread(receiver.recv))
+        try:
+            async with asyncio.timeout(timeout_seconds):
+                message_type, payload = await asyncio.shield(receive_task)
+                await asyncio.to_thread(process.join)
+        except TimeoutError as error:
             raise ProcessingError(
                 "Обработка документа заняла слишком много времени и была остановлена."
-            )
-
-        if not receiver.poll():
-            raise ProcessingError(
-                "Не удалось безопасно обработать документ. Проверьте файл и попробуйте снова."
-            )
-
-        try:
-            message_type, payload = receiver.recv()
+            ) from error
         except (EOFError, OSError) as error:
             raise ProcessingError(
                 "Не удалось безопасно обработать документ. Проверьте файл и попробуйте снова."
@@ -202,10 +200,15 @@ async def _run_isolated(target: Any, args: tuple[Any, ...], name: str, timeout_s
             raise ProcessingError("Обработчик документа вернул некорректный результат.")
         return payload
     finally:
+        # При таймауте или отмене сначала закрываем пишущий конец вместе с
+        # процессом, чтобы recv() в потоке завершился, и лишь затем сам Pipe.
         sender.close()
-        receiver.close()
         if process_started:
             _terminate_process_tree(process)
+        if receive_task is not None:
+            with suppress(EOFError, OSError):
+                await receive_task
+        receiver.close()
 
 
 async def inspect_document_isolated(
